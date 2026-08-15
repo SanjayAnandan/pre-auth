@@ -1,0 +1,744 @@
+[
+  {
+    "policy_id": "POL-001",
+    "policy_name": "MRI Knee Prior Authorization",
+    "payer": "Synthetic Health Plan A",
+    "service_name": "MRI Knee",
+    "cpt_hcpcs_codes": [
+      "73721",
+      "73722",
+      "73723"
+    ],
+    "covered_diagnoses": [
+      "Knee pain",
+      "Meniscal injury",
+      "Ligament injury",
+      "Knee osteoarthritis"
+    ],
+    "icd10_codes": [
+      "M25.561",
+      "M25.562",
+      "S83.511A",
+      "S83.512A",
+      "M17.11",
+      "M17.12"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Moderate",
+        "Severe"
+      ],
+      "functional_impairment_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 30,
+      "acceptable_treatments": [
+        "Medication",
+        "Physical Therapy",
+        "Activity Modification"
+      ]
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Orthopedics",
+      "Sports Medicine"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Imaging Center",
+      "Outpatient Diagnostic Center"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Physical examination",
+      "Previous treatment history",
+      "Relevant X-ray report"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "study",
+      "time_period_days": 180
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 180
+    },
+    "manual_review_criteria": [
+      "Diagnosis conflicts with clinical documentation",
+      "Documented body site conflicts with requested service",
+      "High-risk clinical condition is detected",
+      "Required clinical information is contradictory"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-002",
+    "policy_name": "MRI Lumbar Spine Prior Authorization",
+    "payer": "Synthetic Health Plan A",
+    "service_name": "MRI Lumbar Spine",
+    "cpt_hcpcs_codes": [
+      "72148",
+      "72149",
+      "72158"
+    ],
+    "covered_diagnoses": [
+      "Low back pain",
+      "Lumbar radiculopathy",
+      "Spinal stenosis",
+      "Intervertebral disc disorder"
+    ],
+    "icd10_codes": [
+      "M54.50",
+      "M54.16",
+      "M48.061",
+      "M51.36"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Moderate",
+        "Severe"
+      ],
+      "neurological_symptoms_acceptable": true
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 42,
+      "acceptable_treatments": [
+        "Physical Therapy",
+        "Medication",
+        "Activity Modification"
+      ]
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Orthopedics",
+      "Neurology",
+      "Neurosurgery"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Imaging Center",
+      "Outpatient Diagnostic Center"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Neurological examination",
+      "Previous treatment history",
+      "Relevant imaging report"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "study",
+      "time_period_days": 180
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 180
+    },
+    "manual_review_criteria": [
+      "Diagnosis conflicts with clinical documentation",
+      "Documented body site conflicts with requested service",
+      "High-risk neurological findings are detected",
+      "Clinical information is contradictory"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-003",
+    "policy_name": "CT Head Prior Authorization",
+    "payer": "Synthetic Health Plan B",
+    "service_name": "CT Head",
+    "cpt_hcpcs_codes": [
+      "70450",
+      "70460",
+      "70470"
+    ],
+    "covered_diagnoses": [
+      "Severe headache",
+      "Head injury",
+      "Neurological symptoms",
+      "Suspected intracranial abnormality"
+    ],
+    "icd10_codes": [
+      "R51.9",
+      "S09.90XA",
+      "R29.90",
+      "G93.89"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 75
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Severe"
+      ],
+      "acute_or_worsening_symptoms_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": false,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": []
+    },
+    "previous_procedure_requirement": {
+      "required": true,
+      "procedures": [
+        "Neurological Examination"
+      ]
+    },
+    "provider_specialty_requirement": [
+      "Neurology",
+      "Emergency Medicine",
+      "Neurosurgery"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Emergency Department",
+      "Imaging Center"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Neurological examination",
+      "Reason for imaging"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 2,
+      "unit": "study",
+      "time_period_days": 30
+    },
+    "frequency_limit": {
+      "maximum_quantity": 2,
+      "time_period_days": 30
+    },
+    "manual_review_criteria": [
+      "Clinical notes conflict with neurological assessment",
+      "High-risk neurological condition is detected",
+      "Clinical information is contradictory"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-004",
+    "policy_name": "Colonoscopy Prior Authorization",
+    "payer": "Synthetic Health Plan B",
+    "service_name": "Colonoscopy",
+    "cpt_hcpcs_codes": [
+      "45378",
+      "45380",
+      "45381",
+      "45385"
+    ],
+    "covered_diagnoses": [
+      "Colorectal cancer screening",
+      "Rectal bleeding",
+      "Iron deficiency anemia",
+      "Change in bowel habits"
+    ],
+    "icd10_codes": [
+      "Z12.11",
+      "K62.5",
+      "D50.9",
+      "R19.4"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": false,
+      "allowed_levels": []
+    },
+    "previous_treatment_requirement": {
+      "required": false,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": []
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Gastroenterology",
+      "General Surgery"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Ambulatory Surgical Center",
+      "Endoscopy Center"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Screening history",
+      "Relevant symptoms or risk factors"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "procedure",
+      "time_period_days": 3650
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 3650
+    },
+    "manual_review_criteria": [
+      "Screening indication conflicts with clinical documentation",
+      "Clinical documentation contains contradictory information"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-005",
+    "policy_name": "Physical Therapy Prior Authorization",
+    "payer": "Synthetic Health Plan C",
+    "service_name": "Physical Therapy",
+    "cpt_hcpcs_codes": [
+      "97110",
+      "97112",
+      "97140",
+      "97530"
+    ],
+    "covered_diagnoses": [
+      "Musculoskeletal injury",
+      "Joint pain",
+      "Low back pain",
+      "Post-surgical rehabilitation"
+    ],
+    "icd10_codes": [
+      "M25.50",
+      "M54.50",
+      "Z47.89",
+      "S89.90XA"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Moderate",
+        "Severe"
+      ],
+      "functional_impairment_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": false,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": []
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Physical Therapy",
+      "Orthopedics",
+      "Rehabilitation Medicine"
+    ],
+    "facility_type_requirement": [
+      "Outpatient Rehabilitation Center",
+      "Hospital",
+      "Physical Therapy Clinic"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Functional assessment",
+      "Treatment plan",
+      "Therapy goals"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 12,
+      "unit": "visits",
+      "time_period_days": 30
+    },
+    "frequency_limit": {
+      "maximum_quantity": 3,
+      "time_period_days": 7
+    },
+    "manual_review_criteria": [
+      "Documented body site conflicts with diagnosis",
+      "Clinical notes conflict with treatment plan",
+      "High-risk condition is detected"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-006",
+    "policy_name": "Diabetes Laboratory Monitoring",
+    "payer": "Synthetic Health Plan D",
+    "service_name": "Blood Glucose Test",
+    "cpt_hcpcs_codes": [
+      "82947",
+      "82950"
+    ],
+    "covered_diagnoses": [
+      "Type 1 Diabetes Mellitus",
+      "Type 2 Diabetes Mellitus"
+    ],
+    "icd10_codes": [
+      "E10.9",
+      "E11.9"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Confirmed Diagnosis"
+      ]
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": [
+        "Lifestyle Modification",
+        "Anti-diabetic Medication"
+      ]
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Endocrinology",
+      "Primary Care"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Outpatient Laboratory",
+      "Primary Care Clinic"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Diabetes diagnosis documentation",
+      "Recent blood glucose values"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 2,
+      "unit": "tests",
+      "time_period_days": 30
+    },
+    "frequency_limit": {
+      "maximum_quantity": 2,
+      "time_period_days": 30
+    },
+    "manual_review_criteria": [
+      "Diabetes diagnosis conflicts with clinical documentation",
+      "Laboratory results contain contradictory information",
+      "High-risk clinical finding is detected"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-007",
+    "policy_name": "HbA1c Monitoring",
+    "payer": "Synthetic Health Plan D",
+    "service_name": "HbA1c Test",
+    "cpt_hcpcs_codes": [
+      "83036"
+    ],
+    "covered_diagnoses": [
+      "Type 1 Diabetes Mellitus",
+      "Type 2 Diabetes Mellitus"
+    ],
+    "icd10_codes": [
+      "E10.9",
+      "E11.9"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 80
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Confirmed Diagnosis"
+      ]
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": [
+        "Diabetes Medication"
+      ]
+    },
+    "previous_procedure_requirement": {
+      "required": true,
+      "procedures": [
+        "Blood Glucose Testing"
+      ]
+    },
+    "provider_specialty_requirement": [
+      "Endocrinology",
+      "Primary Care"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Outpatient Laboratory",
+      "Primary Care Clinic"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Previous HbA1c report",
+      "Diabetes diagnosis documentation"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 4,
+      "unit": "tests",
+      "time_period_days": 365
+    },
+    "frequency_limit": {
+      "maximum_quantity": 4,
+      "time_period_days": 365
+    },
+    "manual_review_criteria": [
+      "HbA1c history conflicts with clinical documentation",
+      "Diabetes diagnosis is contradictory",
+      "High-risk laboratory finding requires human review"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-008",
+    "policy_name": "Echocardiogram Prior Authorization",
+    "payer": "Synthetic Health Plan E",
+    "service_name": "Transthoracic Echocardiogram",
+    "cpt_hcpcs_codes": [
+      "93306"
+    ],
+    "covered_diagnoses": [
+      "Heart failure",
+      "Cardiomyopathy",
+      "Valvular heart disease",
+      "Shortness of breath",
+      "Abnormal cardiac findings"
+    ],
+    "icd10_codes": [
+      "I50.9",
+      "I42.9",
+      "I35.9",
+      "R06.02",
+      "R93.1"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 85
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Moderate",
+        "Severe"
+      ],
+      "clinical_symptoms_or_abnormal_findings_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": false,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": []
+    },
+    "previous_procedure_requirement": null,
+    "provider_specialty_requirement": [
+      "Cardiology",
+      "Internal Medicine",
+      "Primary Care"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Cardiology Clinic",
+      "Diagnostic Imaging Center"
+    ],
+    "documentation_requirement": [
+      "Clinical notes",
+      "Cardiac examination",
+      "Relevant symptoms or findings",
+      "Previous cardiac test results if available"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "study",
+      "time_period_days": 180
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 180
+    },
+    "manual_review_criteria": [
+      "Cardiac symptoms conflict with documented diagnosis",
+      "Clinical findings are contradictory",
+      "High-risk cardiac condition is detected"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-009",
+    "policy_name": "CT Brain Prior Authorization",
+    "payer": "Synthetic Health Plan E",
+    "service_name": "CT Brain",
+    "cpt_hcpcs_codes": [
+      "70450"
+    ],
+    "covered_diagnoses": [
+      "Stroke",
+      "Head Injury",
+      "Seizure"
+    ],
+    "icd10_codes": [
+      "I63.9",
+      "S09.90XA",
+      "G40.909"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 75
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Acute",
+        "Severe"
+      ],
+      "acute_neurological_symptoms_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": [
+        "Emergency Assessment"
+      ]
+    },
+    "previous_procedure_requirement": {
+      "required": true,
+      "procedures": [
+        "Neurological Examination"
+      ]
+    },
+    "provider_specialty_requirement": [
+      "Neurology",
+      "Emergency Medicine"
+    ],
+    "facility_type_requirement": [
+      "Emergency Department",
+      "Hospital",
+      "Emergency Imaging Center"
+    ],
+    "documentation_requirement": [
+      "Neurological assessment",
+      "Emergency clinical notes",
+      "Clinical indication"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "scan",
+      "time_period_days": 1
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 1
+    },
+    "manual_review_criteria": [
+      "Neurological assessment conflicts with clinical notes",
+      "High-risk neurological condition is detected",
+      "Clinical information is contradictory"
+    ],
+    "policy_status": "active"
+  },
+  {
+    "policy_id": "POL-010",
+    "policy_name": "Chemotherapy Prior Authorization",
+    "payer": "Synthetic Health Plan F",
+    "service_name": "Chemotherapy",
+    "cpt_hcpcs_codes": [
+      "96413"
+    ],
+    "covered_diagnoses": [
+      "Breast Cancer",
+      "Lung Cancer",
+      "Colon Cancer"
+    ],
+    "icd10_codes": [
+      "C50.919",
+      "C34.90",
+      "C18.9"
+    ],
+    "age_requirement": {
+      "required": true,
+      "minimum_age": 18,
+      "maximum_age": 85
+    },
+    "severity_requirement": {
+      "required": true,
+      "allowed_levels": [
+        "Confirmed Malignancy",
+        "Severe"
+      ],
+      "pathology_confirmation_required": true
+    },
+    "previous_treatment_requirement": {
+      "required": true,
+      "match_mode": "ANY",
+      "minimum_duration_days": 0,
+      "acceptable_treatments": [
+        "Oncology Evaluation"
+      ]
+    },
+    "previous_procedure_requirement": {
+      "required": true,
+      "procedures": [
+        "Biopsy"
+      ]
+    },
+    "provider_specialty_requirement": [
+      "Medical Oncology"
+    ],
+    "facility_type_requirement": [
+      "Hospital",
+      "Cancer Center",
+      "Oncology Treatment Center"
+    ],
+    "documentation_requirement": [
+      "Pathology report",
+      "Cancer staging",
+      "Treatment plan",
+      "Oncology evaluation"
+    ],
+    "quantity_limit": {
+      "maximum_quantity": 1,
+      "unit": "treatment cycle",
+      "time_period_days": 21
+    },
+    "frequency_limit": {
+      "maximum_quantity": 1,
+      "time_period_days": 21
+    },
+    "manual_review_criteria": [
+      "Pathology report conflicts with diagnosis",
+      "Cancer staging information is contradictory",
+      "High-risk clinical finding requires human review"
+    ],
+    "policy_status": "active"
+  }
+]
