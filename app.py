@@ -3,10 +3,18 @@ from pathlib import Path
 import streamlit as st
 
 from src.pdf_extractor import extract_text_from_pdf
-from src.patient_parser import parse_patient, validate_patient
-from src.normalizer import normalize_patient
+from src.patient_parser import (
+    parse_patient,
+    validate_patient
+)
+from src.normalizer import (
+    basic_normalize_patient
+)
 from src.policy_matcher import load_policies
-from src.decision import load_no_prior_auth, process_decision
+from src.decision import (
+    load_no_prior_auth,
+    process_decision
+)
 
 
 # ============================================================
@@ -138,182 +146,13 @@ st.markdown(
         border-radius: 16px;
     }
 
-    [data-testid="stFileUploaderDropzone"] {
-        background: #FAFCFA !important;
-        border: 2px dashed var(--brand) !important;
-        border-radius: 14px !important;
-        min-height: 210px;
-
-        transition:
-            transform 0.15s ease,
-            box-shadow 0.15s ease;
-    }
-
-    [data-testid="stFileUploaderDropzone"]:hover {
-        transform: translateY(-2px);
-
-        box-shadow:
-            0 10px 28px rgba(20, 99, 86, 0.12);
-    }
-
-    [data-testid="stFileUploaderDropzone"] button {
-        border-color: var(--brand) !important;
-        color: var(--brand) !important;
-        border-radius: 9px !important;
-        font-weight: 600 !important;
-    }
-
-    [data-testid="stFileUploaderDropzone"] button:hover {
-        background: var(--brand) !important;
-        color: white !important;
-    }
-
     /* ========================================================
        BUTTONS
        ======================================================== */
 
     .stButton > button {
         border-radius: 10px !important;
-        font-family: "IBM Plex Sans", sans-serif !important;
         font-weight: 600 !important;
-        min-height: 45px;
-
-        transition:
-            transform 0.15s ease,
-            box-shadow 0.15s ease;
-    }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-    }
-
-    .stButton > button:focus {
-        outline: 3px solid rgba(20, 99, 86, 0.25) !important;
-        outline-offset: 2px;
-    }
-
-    .stButton > button[kind="primary"] {
-        background: var(--brand) !important;
-        color: white !important;
-        border: none !important;
-
-        box-shadow:
-            0 7px 18px rgba(20, 99, 86, 0.18);
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        background: #105448 !important;
-
-        box-shadow:
-            0 11px 25px rgba(20, 99, 86, 0.24);
-    }
-
-    /* ========================================================
-       METRICS
-       ======================================================== */
-
-    [data-testid="stMetric"] {
-        background: var(--surface);
-        border: none !important;
-        border-radius: 14px;
-        padding: 16px;
-
-        box-shadow:
-            0 8px 25px rgba(27, 36, 48, 0.06);
-    }
-
-    [data-testid="stMetricLabel"] {
-        font-family: "IBM Plex Sans", sans-serif !important;
-        color: var(--muted) !important;
-        font-size: 0.75rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-    }
-
-    [data-testid="stMetricValue"] {
-        font-family: "IBM Plex Mono", monospace !important;
-        color: var(--ink) !important;
-        font-size: 1rem !important;
-    }
-
-    /* ========================================================
-       ALERTS
-       ======================================================== */
-
-    [data-testid="stAlert"] {
-        border-radius: 12px !important;
-    }
-
-    /* ========================================================
-       EXPANDERS
-       ======================================================== */
-
-    [data-testid="stExpander"] {
-        background: var(--surface);
-        border: none !important;
-        border-radius: 14px !important;
-
-        box-shadow:
-            0 8px 25px rgba(27, 36, 48, 0.05);
-    }
-
-    /* ========================================================
-       DIVIDERS
-       ======================================================== */
-
-    hr {
-        border-color: var(--line) !important;
-    }
-
-    /* ========================================================
-       ANIMATIONS
-       ======================================================== */
-
-    @keyframes fadeUp {
-
-        from {
-            opacity: 0;
-            transform: translateY(8px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-    }
-
-    @keyframes stampIn {
-
-        0% {
-            opacity: 0;
-            transform:
-                scale(1.35)
-                rotate(-7deg);
-        }
-
-        65% {
-            opacity: 1;
-            transform:
-                scale(0.96)
-                rotate(-1deg);
-        }
-
-        100% {
-            opacity: 1;
-            transform:
-                scale(1)
-                rotate(-2deg);
-        }
-
-    }
-
-    .stMarkdown,
-    [data-testid="stMetric"],
-    [data-testid="stFileUploader"],
-    .stButton {
-        animation:
-            fadeUp 350ms ease-out both;
     }
 
     /* ========================================================
@@ -321,8 +160,10 @@ st.markdown(
        ======================================================== */
 
     .decision-stamp-container {
-        padding: 55px 10px;
-        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 170px;
     }
 
     .decision-stamp-approved {
@@ -403,6 +244,23 @@ st.markdown(
             0 8px 22px rgba(201, 138, 43, 0.10);
     }
 
+    @keyframes stampIn {
+
+        from {
+            opacity: 0;
+            transform:
+                rotate(-2deg)
+                scale(0.75);
+        }
+
+        to {
+            opacity: 1;
+            transform:
+                rotate(-2deg)
+                scale(1);
+        }
+    }
+
     /* ========================================================
        REDUCED MOTION
        ======================================================== */
@@ -475,9 +333,6 @@ if "missing_fields" not in st.session_state:
 def safe_title(value, default="Not provided"):
     """
     Safely convert a value to title case.
-
-    Prevents:
-        AttributeError: 'NoneType' object has no attribute 'title'
     """
 
     if value is None:
@@ -625,7 +480,14 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 2. PATIENT PARSING
+                    # 2. PATIENT EXTRACTION
+                    # ==================================================
+                    #
+                    # The LLM extracts facts from the
+                    # patient document.
+                    #
+                    # It does NOT yet know the policy.
+                    #
                     # ==================================================
 
                     with st.spinner(
@@ -638,34 +500,27 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 3. NORMALIZATION
+                    # 3. BASIC NORMALIZATION
+                    # ==================================================
+                    #
+                    # Only safe formatting here.
+                    #
+                    # Examples:
+                    #   " M25.561 " -> "M25.561"
+                    #   "73721"      -> "73721"
+                    #
+                    # We DO NOT perform policy-aware
+                    # semantic normalization here.
+                    #
                     # ==================================================
 
-                    patient = normalize_patient(
+                    patient = basic_normalize_patient(
                         patient
                     )
 
 
                     # ==================================================
-                    # 4. VALIDATION
-                    # ==================================================
-
-                    validation = validate_patient(
-                        patient
-                    )
-
-                    missing_fields = validation.get(
-                        "missing_fields",
-                        []
-                    )
-
-                    st.session_state.missing_fields = (
-                        missing_fields
-                    )
-
-
-                    # ==================================================
-                    # 5. LOAD POLICIES
+                    # 4. LOAD POLICIES
                     # ==================================================
 
                     with st.spinner(
@@ -682,7 +537,81 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
+                    # 5. BASIC VALIDATION
+                    # ==================================================
+                    #
+                    # This validation checks whether we have
+                    # enough information to identify/evaluate
+                    # the authorization request.
+                    #
+                    # It does NOT check policy-specific
+                    # requirements such as:
+                    #
+                    #   severity
+                    #   provider specialty
+                    #   documentation
+                    #   previous treatment
+                    #
+                    # Those are checked AFTER the policy
+                    # is identified.
+                    #
+                    # ==================================================
+
+                    validation = validate_patient(
+                        patient
+                    )
+
+                    missing_fields = validation.get(
+                        "missing_fields",
+                        []
+                    )
+
+                    st.session_state.missing_fields = (
+                        missing_fields
+                    )
+
+                    if not validation.get(
+                        "valid",
+                        False
+                    ):
+
+                        readable_fields = [
+                            field.replace(
+                                "_",
+                                " "
+                            ).title()
+                            for field in missing_fields
+                        ]
+
+                        st.error(
+                            "The patient record is missing "
+                            "information required to evaluate "
+                            "the authorization request."
+                        )
+
+                        st.warning(
+                            "Missing fields: "
+                            + ", ".join(
+                                readable_fields
+                            )
+                        )
+
+                        st.stop()
+
+
+                    # ==================================================
                     # 6. POLICY EVALUATION
+                    # ==================================================
+                    #
+                    # IMPORTANT:
+                    #
+                    # process_decision() now performs:
+                    #
+                    #   1. No-PA check
+                    #   2. Policy matching
+                    #   3. Policy-aware normalization
+                    #   4. Deterministic rule evaluation
+                    #
                     # ==================================================
 
                     with st.spinner(
@@ -697,12 +626,29 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 7. STORE SESSION STATE
+                    # 7. STORE NORMALIZED PATIENT
+                    # ==================================================
+                    #
+                    # process_decision() returns the patient AFTER
+                    # policy-aware normalization.
+                    #
+                    # This is the version the decision page should
+                    # display.
+                    #
                     # ==================================================
 
-                    st.session_state.patient = patient
+                    normalized_patient = result.get(
+                        "normalized_patient",
+                        patient
+                    )
 
-                    st.session_state.result = result
+                    st.session_state.patient = (
+                        normalized_patient
+                    )
+
+                    st.session_state.result = (
+                        result
+                    )
 
                     st.session_state.page = "decision"
 
@@ -1231,106 +1177,32 @@ elif st.session_state.page == "decision":
 
 
     # ========================================================
-    # APPLIED POLICY
+    # NORMALIZED PATIENT DATA
     # ========================================================
 
-    st.write("")
+    with st.expander(
+        "View normalized patient data"
+    ):
 
-
-    policy_id = result.get(
-        "policy_id"
-    )
-
-    policy_name = result.get(
-        "policy_name"
-    )
-
-
-    if policy_id or policy_name:
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Applied Policy"
-            )
-
-
-            policy_col1, policy_col2 = st.columns(
-                2
-            )
-
-
-            with policy_col1:
-
-                st.caption(
-                    "POLICY"
-                )
-
-                st.write(
-                    safe_display(
-                        policy_name
-                    )
-                )
-
-
-            with policy_col2:
-
-                st.caption(
-                    "POLICY ID"
-                )
-
-                st.code(
-                    safe_display(
-                        policy_id
-                    ),
-                    language=None
-                )
-
-
-    # ========================================================
-    # DENIAL REASONS
-    # ========================================================
-
-    failed_criteria = [
-
-        criterion
-
-        for criterion in result.get(
-            "criteria",
-            []
+        st.json(
+            patient
         )
 
-        if criterion.get(
-            "status"
-        ) == "FAILED"
 
-    ]
+    # ========================================================
+    # POLICY USED
+    # ========================================================
 
+    policy_used = result.get(
+        "policy"
+    )
 
-    if decision == "DENIED" and failed_criteria:
+    if policy_used:
 
-        st.write("")
+        with st.expander(
+            "View applicable policy"
+        ):
 
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Reasons for Denial"
+            st.json(
+                policy_used
             )
-
-
-            for criterion in failed_criteria:
-
-                name = criterion.get(
-                    "criterion",
-                    "Criterion"
-                )
-
-                reason = criterion.get(
-                    "reason",
-                    "Requirement was not satisfied."
-                )
-
-                st.error(
-                    f"**{name}** — {reason}"
-                )

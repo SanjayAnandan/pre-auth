@@ -1,7 +1,15 @@
+# src/decision.py
+
 import json
 
 from src.policy_matcher import find_matching_policies
+from src.normalizer import normalize_patient
 from src.rule_engine import evaluate_policy
+
+
+# ============================================================
+# LOAD NO PRIOR AUTHORIZATION LIST
+# ============================================================
 
 def load_no_prior_auth(path):
 
@@ -9,14 +17,23 @@ def load_no_prior_auth(path):
         return json.load(file)
 
 
-def process_decision(patient, policies, no_pa_codes):
+# ============================================================
+# PROCESS DECISION
+# ============================================================
 
-    code = patient.get("cpt_hcpcs_code")
+def process_decision(
+    patient,
+    policies,
+    no_pa_codes
+):
 
-    # ------------------------------------------------
-    # STEP 1: Check whether prior authorization is
-    #         required at all.
-    # ------------------------------------------------
+    code = patient.get(
+        "cpt_hcpcs_code"
+    )
+
+    # ========================================================
+    # STEP 1 — NO PRIOR AUTH
+    # ========================================================
 
     if code in no_pa_codes:
 
@@ -30,18 +47,14 @@ def process_decision(patient, policies, no_pa_codes):
             )
         }
 
-    # ------------------------------------------------
-    # STEP 2: Find applicable policies
-    # ------------------------------------------------
+    # ========================================================
+    # STEP 2 — FIND APPLICABLE POLICY
+    # ========================================================
 
     matching_policies = find_matching_policies(
         patient,
         policies
     )
-
-    # ------------------------------------------------
-    # STEP 3: No matching policy
-    # ------------------------------------------------
 
     if not matching_policies:
 
@@ -55,19 +68,48 @@ def process_decision(patient, policies, no_pa_codes):
             )
         }
 
-    # ------------------------------------------------
-    # STEP 4: Evaluate first matching policy
-    # ------------------------------------------------
+    # ========================================================
+    # STEP 3 — USE FIRST APPLICABLE POLICY
+    # ========================================================
+
+    policy = matching_policies[0]
+
+    # ========================================================
+    # STEP 4 — POLICY-AWARE NORMALIZATION
+    # ========================================================
+
+    normalized_patient = normalize_patient(
+        patient,
+        policy
+    )
+
+    # ========================================================
+    # STEP 5 — RULE ENGINE
+    # ========================================================
 
     result = evaluate_policy(
-        patient,
-        matching_policies[0]
+        normalized_patient,
+        policy
     )
 
-    result["patient_id"] = patient.get("patient_id")
-    result["requested_service"] = patient.get(
+    # ========================================================
+    # STEP 6 — ADD REQUEST INFORMATION
+    # ========================================================
+
+    result["patient_id"] = normalized_patient.get(
+        "patient_id"
+    )
+
+    result["requested_service"] = normalized_patient.get(
         "requested_service"
     )
-    result["code"] = code
+
+    result["code"] = normalized_patient.get(
+        "cpt_hcpcs_code"
+    )
+
+    result["normalized_patient"] = normalized_patient
+
+    result["policy"] = policy
 
     return result
