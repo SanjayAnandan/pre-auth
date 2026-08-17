@@ -3,18 +3,10 @@ from pathlib import Path
 import streamlit as st
 
 from src.pdf_extractor import extract_text_from_pdf
-from src.patient_parser import (
-    parse_patient,
-    validate_patient
-)
-from src.normalizer import (
-    basic_normalize_patient
-)
+from src.patient_parser import parse_patient, validate_patient
+from src.normalizer import normalize_patient
 from src.policy_matcher import load_policies
-from src.decision import (
-    load_no_prior_auth,
-    process_decision
-)
+from src.decision import load_no_prior_auth, process_decision
 
 
 # ============================================================
@@ -64,6 +56,7 @@ st.markdown(
         --line: #DCE3DF;
     }
 
+
     /* ========================================================
        GLOBAL
        ======================================================== */
@@ -90,6 +83,7 @@ st.markdown(
     footer {
         visibility: hidden;
     }
+
 
     /* ========================================================
        TYPOGRAPHY
@@ -125,6 +119,7 @@ st.markdown(
         color: var(--muted);
     }
 
+
     /* ========================================================
        CONTAINERS
        ======================================================== */
@@ -137,6 +132,7 @@ st.markdown(
             0 12px 35px rgba(27, 36, 48, 0.07);
     }
 
+
     /* ========================================================
        FILE UPLOADER
        ======================================================== */
@@ -146,6 +142,7 @@ st.markdown(
         border-radius: 16px;
     }
 
+
     /* ========================================================
        BUTTONS
        ======================================================== */
@@ -153,17 +150,144 @@ st.markdown(
     .stButton > button {
         border-radius: 10px !important;
         font-weight: 600 !important;
+        border: none !important;
     }
+
+    .stButton > button[kind="primary"] {
+        background: var(--brand) !important;
+        color: white !important;
+        box-shadow:
+            0 7px 18px rgba(20, 99, 86, 0.18);
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background: #105448 !important;
+
+        box-shadow:
+            0 11px 25px rgba(20, 99, 86, 0.24);
+    }
+
+
+    /* ========================================================
+       METRICS
+       ======================================================== */
+
+    [data-testid="stMetric"] {
+        background: var(--surface);
+        border: none !important;
+        border-radius: 14px;
+        padding: 16px;
+
+        box-shadow:
+            0 8px 25px rgba(27, 36, 48, 0.06);
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-family: "IBM Plex Sans", sans-serif !important;
+        color: var(--muted) !important;
+        font-size: 0.75rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-family: "IBM Plex Mono", monospace !important;
+        color: var(--ink) !important;
+        font-size: 1rem !important;
+    }
+
+
+    /* ========================================================
+       ALERTS
+       ======================================================== */
+
+    [data-testid="stAlert"] {
+        border-radius: 12px !important;
+    }
+
+
+    /* ========================================================
+       EXPANDERS
+       ======================================================== */
+
+    [data-testid="stExpander"] {
+        background: var(--surface);
+        border: none !important;
+        border-radius: 14px !important;
+
+        box-shadow:
+            0 8px 25px rgba(27, 36, 48, 0.05);
+    }
+
+
+    /* ========================================================
+       DIVIDERS
+       ======================================================== */
+
+    hr {
+        border-color: var(--line) !important;
+    }
+
+
+    /* ========================================================
+       ANIMATIONS
+       ======================================================== */
+
+    @keyframes fadeUp {
+
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+    }
+
+    @keyframes stampIn {
+
+        0% {
+            opacity: 0;
+            transform:
+                scale(1.35)
+                rotate(-7deg);
+        }
+
+        65% {
+            opacity: 1;
+            transform:
+                scale(0.96)
+                rotate(-1deg);
+        }
+
+        100% {
+            opacity: 1;
+            transform:
+                scale(1)
+                rotate(-2deg);
+        }
+
+    }
+
+    .stMarkdown,
+    [data-testid="stMetric"],
+    [data-testid="stFileUploader"],
+    .stButton {
+        animation:
+            fadeUp 350ms ease-out both;
+    }
+
 
     /* ========================================================
        DECISION STAMPS
        ======================================================== */
 
     .decision-stamp-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 170px;
+        padding: 55px 10px;
+        text-align: center;
     }
 
     .decision-stamp-approved {
@@ -244,22 +368,6 @@ st.markdown(
             0 8px 22px rgba(201, 138, 43, 0.10);
     }
 
-    @keyframes stampIn {
-
-        from {
-            opacity: 0;
-            transform:
-                rotate(-2deg)
-                scale(0.75);
-        }
-
-        to {
-            opacity: 1;
-            transform:
-                rotate(-2deg)
-                scale(1);
-        }
-    }
 
     /* ========================================================
        REDUCED MOTION
@@ -279,6 +387,7 @@ st.markdown(
         }
 
     }
+
 
     /* ========================================================
        MOBILE
@@ -331,9 +440,6 @@ if "missing_fields" not in st.session_state:
 # ============================================================
 
 def safe_title(value, default="Not provided"):
-    """
-    Safely convert a value to title case.
-    """
 
     if value is None:
         return default
@@ -347,9 +453,6 @@ def safe_title(value, default="Not provided"):
 
 
 def safe_upper(value, default="Not provided"):
-    """
-    Safely convert a value to uppercase.
-    """
 
     if value is None:
         return default
@@ -363,9 +466,6 @@ def safe_upper(value, default="Not provided"):
 
 
 def safe_display(value, default="Not provided"):
-    """
-    Safely display any patient field.
-    """
 
     if value is None:
         return default
@@ -377,14 +477,207 @@ def safe_display(value, default="Not provided"):
 
 
 # ============================================================
+# GET CRITERIA FROM RESULT
+# ============================================================
+
+def get_criteria(result):
+    """
+    The current rule_engine.py returns evaluated criteria
+    under the key 'results'.
+
+    Older/newer versions may use 'criteria'.
+
+    Support both so the UI never incorrectly shows
+    zero criteria.
+    """
+
+    if not isinstance(result, dict):
+        return []
+
+    criteria = result.get("criteria")
+
+    if isinstance(criteria, list):
+        return criteria
+
+    results = result.get("results")
+
+    if isinstance(results, list):
+        return results
+
+    return []
+
+
+# ============================================================
+# GET APPLIED POLICY
+# ============================================================
+
+def get_policy_name(result):
+
+    if not isinstance(result, dict):
+        return None
+
+    return (
+        result.get("policy_name")
+        or result.get("applied_policy_name")
+    )
+
+
+def get_policy_id(result):
+
+    if not isinstance(result, dict):
+        return None
+
+    return (
+        result.get("policy_id")
+        or result.get("applied_policy_id")
+    )
+
+
+# ============================================================
+# COUNT CRITERIA
+# ============================================================
+
+def count_criteria(criteria):
+
+    passed = 0
+    failed = 0
+    not_applicable = 0
+    other = 0
+
+    for criterion in criteria:
+
+        status = str(
+            criterion.get(
+                "status",
+                ""
+            )
+        ).upper()
+
+        if status == "PASSED":
+            passed += 1
+
+        elif status == "FAILED":
+            failed += 1
+
+        elif status == "NOT_APPLICABLE":
+            not_applicable += 1
+
+        else:
+            other += 1
+
+    return (
+        passed,
+        failed,
+        not_applicable,
+        other
+    )
+
+
+# ============================================================
+# RENDER CRITERION
+# ============================================================
+
+def render_criterion(criterion):
+
+    status = criterion.get(
+        "status",
+        "UNKNOWN"
+    )
+
+    name = criterion.get(
+        "criterion",
+        "Criterion"
+    )
+
+    reason = criterion.get(
+        "reason",
+        ""
+    )
+
+    status = str(
+        status
+    ).upper()
+
+    if status == "PASSED":
+
+        st.success(
+            f"✓ {name}"
+        )
+
+    elif status == "FAILED":
+
+        st.error(
+            f"✗ {name}"
+        )
+
+    elif status == "NOT_APPLICABLE":
+
+        st.info(
+            f"— {name}"
+        )
+
+    else:
+
+        st.warning(
+            f"? {name}"
+        )
+
+    if reason:
+
+        st.caption(
+            reason
+        )
+
+
+# ============================================================
+# RENDER ALL CRITERIA
+# ============================================================
+
+def render_criteria(criteria):
+
+    if not criteria:
+
+        st.info(
+            "No policy criteria were returned "
+            "by the policy evaluation engine."
+        )
+
+        return
+
+    left_criteria, right_criteria = st.columns(
+        2
+    )
+
+    midpoint = (
+        len(criteria) + 1
+    ) // 2
+
+    with left_criteria:
+
+        for criterion in criteria[
+            :midpoint
+        ]:
+
+            render_criterion(
+                criterion
+            )
+
+    with right_criteria:
+
+        for criterion in criteria[
+            midpoint:
+        ]:
+
+            render_criterion(
+                criterion
+            )
+
+
+# ============================================================
 # UPLOAD PAGE
 # ============================================================
 
 if st.session_state.page == "upload":
-
-    # --------------------------------------------------------
-    # Brand
-    # --------------------------------------------------------
 
     st.title("🏥 PriorAuth AI")
 
@@ -394,11 +687,9 @@ if st.session_state.page == "upload":
 
     st.divider()
 
-    # --------------------------------------------------------
-    # Hero
-    # --------------------------------------------------------
-
-    st.title("Prior Authorization Review")
+    st.title(
+        "Prior Authorization Review"
+    )
 
     st.write(
         "Upload a patient record and let the policy engine "
@@ -408,13 +699,11 @@ if st.session_state.page == "upload":
 
     st.write("")
 
-    # --------------------------------------------------------
-    # Upload
-    # --------------------------------------------------------
-
     with st.container(border=True):
 
-        st.subheader("Patient Record")
+        st.subheader(
+            "Patient Record"
+        )
 
         uploaded_file = st.file_uploader(
             "Upload patient PDF",
@@ -480,14 +769,7 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 2. PATIENT EXTRACTION
-                    # ==================================================
-                    #
-                    # The LLM extracts facts from the
-                    # patient document.
-                    #
-                    # It does NOT yet know the policy.
-                    #
+                    # 2. PATIENT PARSING
                     # ==================================================
 
                     with st.spinner(
@@ -502,25 +784,45 @@ if st.session_state.page == "upload":
                     # ==================================================
                     # 3. BASIC NORMALIZATION
                     # ==================================================
-                    #
-                    # Only safe formatting here.
-                    #
-                    # Examples:
-                    #   " M25.561 " -> "M25.561"
-                    #   "73721"      -> "73721"
-                    #
-                    # We DO NOT perform policy-aware
-                    # semantic normalization here.
-                    #
-                    # ==================================================
 
-                    patient = basic_normalize_patient(
+                    patient = normalize_patient(
                         patient
                     )
 
 
                     # ==================================================
-                    # 4. LOAD POLICIES
+                    # 4. VALIDATION
+                    # ==================================================
+
+                    validation = validate_patient(
+                        patient
+                    )
+
+                    # --------------------------------------------------
+                    # Your validate_patient() versions have used both
+                    # "missing_fields" and "errors".
+                    # Support both.
+                    # --------------------------------------------------
+
+                    missing_fields = validation.get(
+                        "missing_fields",
+                        []
+                    )
+
+                    if not missing_fields:
+
+                        missing_fields = validation.get(
+                            "errors",
+                            []
+                        )
+
+                    st.session_state.missing_fields = (
+                        missing_fields
+                    )
+
+
+                    # ==================================================
+                    # 5. LOAD POLICIES
                     # ==================================================
 
                     with st.spinner(
@@ -537,81 +839,7 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 5. BASIC VALIDATION
-                    # ==================================================
-                    #
-                    # This validation checks whether we have
-                    # enough information to identify/evaluate
-                    # the authorization request.
-                    #
-                    # It does NOT check policy-specific
-                    # requirements such as:
-                    #
-                    #   severity
-                    #   provider specialty
-                    #   documentation
-                    #   previous treatment
-                    #
-                    # Those are checked AFTER the policy
-                    # is identified.
-                    #
-                    # ==================================================
-
-                    validation = validate_patient(
-                        patient
-                    )
-
-                    missing_fields = validation.get(
-                        "missing_fields",
-                        []
-                    )
-
-                    st.session_state.missing_fields = (
-                        missing_fields
-                    )
-
-                    if not validation.get(
-                        "valid",
-                        False
-                    ):
-
-                        readable_fields = [
-                            field.replace(
-                                "_",
-                                " "
-                            ).title()
-                            for field in missing_fields
-                        ]
-
-                        st.error(
-                            "The patient record is missing "
-                            "information required to evaluate "
-                            "the authorization request."
-                        )
-
-                        st.warning(
-                            "Missing fields: "
-                            + ", ".join(
-                                readable_fields
-                            )
-                        )
-
-                        st.stop()
-
-
-                    # ==================================================
                     # 6. POLICY EVALUATION
-                    # ==================================================
-                    #
-                    # IMPORTANT:
-                    #
-                    # process_decision() now performs:
-                    #
-                    #   1. No-PA check
-                    #   2. Policy matching
-                    #   3. Policy-aware normalization
-                    #   4. Deterministic rule evaluation
-                    #
                     # ==================================================
 
                     with st.spinner(
@@ -626,31 +854,20 @@ if st.session_state.page == "upload":
 
 
                     # ==================================================
-                    # 7. STORE NORMALIZED PATIENT
+                    # 7. STORE RESULT
                     # ==================================================
-                    #
-                    # process_decision() returns the patient AFTER
-                    # policy-aware normalization.
-                    #
-                    # This is the version the decision page should
-                    # display.
-                    #
-                    # ==================================================
-
-                    normalized_patient = result.get(
-                        "normalized_patient",
-                        patient
-                    )
 
                     st.session_state.patient = (
-                        normalized_patient
+                        patient
                     )
 
                     st.session_state.result = (
                         result
                     )
 
-                    st.session_state.page = "decision"
+                    st.session_state.page = (
+                        "decision"
+                    )
 
                     st.rerun()
 
@@ -691,9 +908,13 @@ elif st.session_state.page == "decision":
     # NEW REQUEST
     # ========================================================
 
-    if st.button("← New Request"):
+    if st.button(
+        "← New Request"
+    ):
 
-        st.session_state.page = "upload"
+        st.session_state.page = (
+            "upload"
+        )
 
         st.session_state.patient = None
 
@@ -708,9 +929,13 @@ elif st.session_state.page == "decision":
     # HEADER
     # ========================================================
 
-    st.title("🏥 PriorAuth AI")
+    st.title(
+        "🏥 PriorAuth AI"
+    )
 
-    st.caption("Authorization Decision")
+    st.caption(
+        "Authorization Decision"
+    )
 
     st.divider()
 
@@ -719,8 +944,9 @@ elif st.session_state.page == "decision":
     # REQUEST SUMMARY
     # ========================================================
 
-    st.subheader("Request Summary")
-
+    st.subheader(
+        "Request Summary"
+    )
 
     patient_id = patient.get(
         "patient_id"
@@ -739,10 +965,6 @@ elif st.session_state.page == "decision":
     )
 
 
-    # ========================================================
-    # SAFE DISPLAY VALUES
-    # ========================================================
-
     patient_id_display = safe_display(
         patient_id
     )
@@ -759,10 +981,6 @@ elif st.session_state.page == "decision":
         code
     )
 
-
-    # ========================================================
-    # SUMMARY CARDS
-    # ========================================================
 
     col1, col2, col3, col4 = st.columns(
         [1, 1, 2.3, 1]
@@ -813,7 +1031,6 @@ elif st.session_state.page == "decision":
         []
     )
 
-
     if missing_fields:
 
         with st.container(border=True):
@@ -823,17 +1040,26 @@ elif st.session_state.page == "decision":
                 "be extracted from the submitted PDF."
             )
 
-            readable_fields = [
-                field.replace(
-                    "_",
-                    " "
-                ).title()
-                for field in missing_fields
-            ]
+            readable_fields = []
+
+            for field in missing_fields:
+
+                field = str(
+                    field
+                )
+
+                readable_fields.append(
+                    field.replace(
+                        "_",
+                        " "
+                    ).title()
+                )
 
             st.caption(
                 "Missing fields: "
-                + ", ".join(readable_fields)
+                + ", ".join(
+                    readable_fields
+                )
             )
 
 
@@ -843,7 +1069,46 @@ elif st.session_state.page == "decision":
 
     decision = result.get(
         "decision",
-        "MANUAL_REVIEW"
+        "MANUAL REVIEW"
+    )
+
+    decision = str(
+        decision
+    ).upper()
+
+
+    # ========================================================
+    # GET ACTUAL CRITERIA
+    #
+    # IMPORTANT:
+    #
+    # rule_engine.py currently returns:
+    #
+    #     "results": [...]
+    #
+    # NOT:
+    #
+    #     "criteria": [...]
+    #
+    # get_criteria() handles both.
+    # ========================================================
+
+    criteria = get_criteria(
+        result
+    )
+
+
+    # ========================================================
+    # COUNT RESULTS
+    # ========================================================
+
+    (
+        passed_count,
+        failed_count,
+        not_applicable_count,
+        other_count
+    ) = count_criteria(
+        criteria
     )
 
 
@@ -865,7 +1130,9 @@ elif st.session_state.page == "decision":
 
         with st.container(border=True):
 
-            st.subheader("Final Decision")
+            st.subheader(
+                "Final Decision"
+            )
 
 
             if decision == "APPROVED":
@@ -901,12 +1168,15 @@ elif st.session_state.page == "decision":
                 )
 
                 st.error(
-                    "The request does not satisfy one "
-                    "or more policy requirements."
+                    "The request does not satisfy "
+                    "one or more policy requirements."
                 )
 
 
-            elif decision == "MANUAL_REVIEW":
+            elif (
+                decision == "MANUAL REVIEW"
+                or decision == "MANUAL_REVIEW"
+            ):
 
                 st.markdown(
                     """
@@ -920,7 +1190,8 @@ elif st.session_state.page == "decision":
                 )
 
                 st.warning(
-                    "The request requires additional review."
+                    "The request requires "
+                    "additional review."
                 )
 
 
@@ -942,7 +1213,7 @@ elif st.session_state.page == "decision":
 
 
     # ========================================================
-    # RIGHT: REASONING
+    # RIGHT: DECISION EXPLANATION
     # ========================================================
 
     with reason_col:
@@ -954,53 +1225,89 @@ elif st.session_state.page == "decision":
             )
 
 
-            if decision == "DENIED":
+            # ====================================================
+            # APPROVED
+            # ====================================================
 
-                failed_count = sum(
-                    1
-                    for criterion in result.get(
-                        "criteria",
-                        []
+            if decision == "APPROVED":
+
+                if criteria:
+
+                    st.write(
+                        f"The request satisfied "
+                        f"**{passed_count}** "
+                        "policy requirement(s)."
                     )
-                    if criterion.get(
-                        "status"
-                    ) == "FAILED"
-                )
 
-                st.write(
-                    f"The request failed "
-                    f"**{failed_count}** "
-                    "policy requirement(s)."
-                )
+                    if not_applicable_count:
 
+                        st.caption(
+                            f"{not_applicable_count} "
+                            "criterion/criteria were "
+                            "not applicable."
+                        )
 
-            elif decision == "APPROVED":
+                else:
 
-                passed_count = sum(
-                    1
-                    for criterion in result.get(
-                        "criteria",
-                        []
+                    st.write(
+                        "The request was approved, "
+                        "but no individual criteria "
+                        "were returned by the evaluation engine."
                     )
-                    if criterion.get(
-                        "status"
-                    ) == "PASSED"
-                )
-
-                st.write(
-                    f"The request satisfied "
-                    f"**{passed_count}** "
-                    "policy requirement(s)."
-                )
 
 
-            elif decision == "MANUAL_REVIEW":
+            # ====================================================
+            # DENIED
+            # ====================================================
+
+            elif decision == "DENIED":
+
+                if criteria:
+
+                    st.write(
+                        f"The request failed "
+                        f"**{failed_count}** "
+                        "policy requirement(s)."
+                    )
+
+                else:
+
+                    st.write(
+                        "The request was denied, "
+                        "but no individual criteria "
+                        "were returned by the evaluation engine."
+                    )
+
+
+            # ====================================================
+            # MANUAL REVIEW
+            # ====================================================
+
+            elif (
+                decision == "MANUAL REVIEW"
+                or decision == "MANUAL_REVIEW"
+            ):
 
                 st.write(
                     result.get(
                         "reason",
-                        "No applicable policy was found "
-                        "for the requested service."
+                        "The request requires "
+                        "manual review."
+                    )
+                )
+
+
+            # ====================================================
+            # NO PA
+            # ====================================================
+
+            elif decision == "NO_PRIOR_AUTH_REQUIRED":
+
+                st.write(
+                    result.get(
+                        "reason",
+                        "Prior authorization is "
+                        "not required for this service."
                     )
                 )
 
@@ -1015,170 +1322,223 @@ elif st.session_state.page == "decision":
                 )
 
 
-            # ==================================================
-            # POLICY EVALUATION NOTICE
-            # ==================================================
+    # ========================================================
+    # APPLIED POLICY
+    # ========================================================
 
-            st.info(
-                "Policy criteria were evaluated against "
-                "the submitted patient information."
-            )
+    policy_id = get_policy_id(
+        result
+    )
+
+    policy_name = get_policy_name(
+        result
+    )
 
 
-            # ==================================================
-            # POLICY CRITERIA
-            # ==================================================
+    if policy_id or policy_name:
+
+        st.write("")
+
+        with st.container(border=True):
 
             st.subheader(
-                "Policy Criteria"
+                "Applied Policy"
             )
 
-
-            criteria = result.get(
-                "criteria",
-                []
+            policy_col1, policy_col2 = st.columns(
+                2
             )
 
+            with policy_col1:
 
-            if not criteria:
-
-                st.info(
-                    "No policy criteria were available "
-                    "for this request."
+                st.caption(
+                    "POLICY"
                 )
 
+                st.write(
+                    safe_display(
+                        policy_name
+                    )
+                )
+
+            with policy_col2:
+
+                st.caption(
+                    "POLICY ID"
+                )
+
+                st.code(
+                    safe_display(
+                        policy_id
+                    ),
+                    language=None
+                )
+
+
+    # ========================================================
+    # APPROVED POLICY SUMMARY
+    # ========================================================
+
+    if decision == "APPROVED":
+
+        st.write("")
+
+        with st.container(border=True):
+
+            st.subheader(
+                "Authorization Summary"
+            )
+
+            summary_col1, summary_col2 = st.columns(
+                2
+            )
+
+            with summary_col1:
+
+                st.metric(
+                    "Criteria Satisfied",
+                    passed_count
+                )
+
+            with summary_col2:
+
+                st.metric(
+                    "Criteria Evaluated",
+                    len(criteria)
+                )
+
+
+            # ------------------------------------------------
+            # OPTION TO VIEW CRITERIA
+            # ------------------------------------------------
+
+            if criteria:
+
+                with st.expander(
+                    "View satisfied policy criteria"
+                ):
+
+                    render_criteria(
+                        criteria
+                    )
 
             else:
 
-                left_criteria, right_criteria = st.columns(
-                    2
+                st.warning(
+                    "The authorization was approved, "
+                    "but the decision engine did not "
+                    "return its individual criteria."
                 )
 
 
-                midpoint = (
-                    len(criteria) + 1
-                ) // 2
+    # ========================================================
+    # DENIAL REASONS
+    # ========================================================
+
+    if decision == "DENIED":
+
+        failed_criteria = [
+
+            criterion
+
+            for criterion in criteria
+
+            if str(
+                criterion.get(
+                    "status",
+                    ""
+                )
+            ).upper() == "FAILED"
+
+        ]
 
 
-                # ------------------------------------------------
-                # LEFT CRITERIA
-                # ------------------------------------------------
+        if failed_criteria:
 
-                with left_criteria:
+            st.write("")
 
-                    for criterion in criteria[
-                        :midpoint
-                    ]:
+            with st.container(border=True):
 
-                        status = criterion.get(
-                            "status",
-                            "UNKNOWN"
-                        )
+                st.subheader(
+                    "Reasons for Denial"
+                )
 
-                        name = criterion.get(
-                            "criterion",
-                            "Criterion"
-                        )
+                for criterion in failed_criteria:
 
-                        reason = criterion.get(
-                            "reason",
-                            ""
-                        )
+                    name = criterion.get(
+                        "criterion",
+                        "Criterion"
+                    )
 
+                    reason = criterion.get(
+                        "reason",
+                        "Requirement was not satisfied."
+                    )
 
-                        if status == "PASSED":
-
-                            st.success(
-                                f"✓ {name}"
-                            )
-
-                        elif status == "FAILED":
-
-                            st.error(
-                                f"✗ {name}"
-                            )
-
-                        elif status == "NOT_APPLICABLE":
-
-                            st.info(
-                                f"— {name}"
-                            )
-
-                        else:
-
-                            st.warning(
-                                f"? {name}"
-                            )
+                    st.error(
+                        f"**{name}** — {reason}"
+                    )
 
 
-                        if reason:
+        # ----------------------------------------------------
+        # Full criteria available as expandable section
+        # ----------------------------------------------------
 
-                            st.caption(
-                                reason
-                            )
+        if criteria:
 
+            with st.expander(
+                "View all policy criteria"
+            ):
 
-                # ------------------------------------------------
-                # RIGHT CRITERIA
-                # ------------------------------------------------
-
-                with right_criteria:
-
-                    for criterion in criteria[
-                        midpoint:
-                    ]:
-
-                        status = criterion.get(
-                            "status",
-                            "UNKNOWN"
-                        )
-
-                        name = criterion.get(
-                            "criterion",
-                            "Criterion"
-                        )
-
-                        reason = criterion.get(
-                            "reason",
-                            ""
-                        )
-
-
-                        if status == "PASSED":
-
-                            st.success(
-                                f"✓ {name}"
-                            )
-
-                        elif status == "FAILED":
-
-                            st.error(
-                                f"✗ {name}"
-                            )
-
-                        elif status == "NOT_APPLICABLE":
-
-                            st.info(
-                                f"— {name}"
-                            )
-
-                        else:
-
-                            st.warning(
-                                f"? {name}"
-                            )
-
-
-                        if reason:
-
-                            st.caption(
-                                reason
-                            )
+                render_criteria(
+                    criteria
+                )
 
 
     # ========================================================
-    # NORMALIZED PATIENT DATA
+    # POLICY EVALUATION NOTICE
     # ========================================================
+
+    if criteria:
+
+        st.write("")
+
+        st.info(
+            "Policy criteria were evaluated against "
+            "the submitted patient information."
+        )
+
+
+    # ========================================================
+    # DEBUG / AUDIT DETAILS
+    #
+    # Useful during development, but hidden by default.
+    # ========================================================
+
+    with st.expander(
+        "View evaluation details"
+    ):
+
+        st.json(
+            {
+                "decision": decision,
+                "policy_id": policy_id,
+                "policy_name": policy_name,
+                "criteria_count": len(criteria),
+                "passed_count": passed_count,
+                "failed_count": failed_count,
+                "not_applicable_count": (
+                    not_applicable_count
+                ),
+            }
+        )
+
+
+    # ========================================================
+    # PATIENT DATA
+    # ========================================================
+
+    st.write("")
 
     with st.expander(
         "View normalized patient data"
@@ -1187,22 +1547,3 @@ elif st.session_state.page == "decision":
         st.json(
             patient
         )
-
-
-    # ========================================================
-    # POLICY USED
-    # ========================================================
-
-    policy_used = result.get(
-        "policy"
-    )
-
-    if policy_used:
-
-        with st.expander(
-            "View applicable policy"
-        ):
-
-            st.json(
-                policy_used
-            )
