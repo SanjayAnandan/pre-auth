@@ -1370,3 +1370,124 @@ def _matches_search(r, q):
         r.get("cpt_hcpcs_code",""), r.get("requested_service",""),
         _get_decision(r)
     ])
+
+
+# ============================================================
+# 12. PRIVACY & VERIFICATION UI COMPONENTS
+# ============================================================
+
+def render_intake_stage_tracker(current_stage: int = 1):
+    """
+    Renders the 5-step Privacy & Intake workflow stage tracker.
+    STEP 1 Upload -> STEP 2 Verify Patient -> STEP 3 Protect Patient Data -> STEP 4 AI Analysis -> STEP 5 Authorization Decision
+    """
+    stages = [
+        ("1", "Upload Documents"),
+        ("2", "Verify Patient"),
+        ("3", "Protect Patient Data"),
+        ("4", "AI Analysis"),
+        ("5", "Authorization Decision")
+    ]
+
+    html_steps = []
+    for idx, (num, label) in enumerate(stages, 1):
+        if idx < current_stage:
+            css = "background: var(--teal-600); color: white; border-color: var(--teal-600);"
+            icon = "✓"
+            text_style = "color: var(--teal-800); font-weight: 600;"
+        elif idx == current_stage:
+            css = "background: var(--blue-600); color: white; border-color: var(--blue-600);"
+            icon = num
+            text_style = "color: var(--slate-900); font-weight: 700;"
+        else:
+            css = "background: var(--slate-100); color: var(--slate-500); border-color: var(--slate-300);"
+            icon = num
+            text_style = "color: var(--slate-500); font-weight: 400;"
+
+        step_html = f'<div style="display: flex; align-items: center; gap: 8px;"><div style="width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; {css}">{icon}</div><div style="font-size: 13px; {text_style}">{label}</div></div>'
+        html_steps.append(step_html)
+
+    div_bar = f'<div style="background: white; border: 1px solid var(--slate-200); border-radius: var(--radius-lg); padding: 14px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">{"".join(html_steps)}</div>'
+    st.markdown(div_bar, unsafe_allow_html=True)
+
+
+def render_verification_status(verification: Dict[str, Any]):
+    """
+    Renders structured patient identity verification results card,
+    field match breakdown badges, age discrepancy warnings, and PII protection banner.
+    """
+    is_verified = verification.get("verified", False)
+    status = verification.get("status", "UNKNOWN")
+    score = verification.get("score", 0)
+    fields = verification.get("fields", {})
+    discrepancies = verification.get("discrepancies", [])
+    age_warnings = verification.get("age_warnings", [])
+    calc_age = verification.get("calculated_age")
+
+    if is_verified:
+        st.markdown(f'''<div style="background: var(--teal-50); border: 1px solid var(--teal-200); border-radius: var(--radius-lg); padding: 18px 22px; margin: 16px 0;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<div style="background: var(--teal-600); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;">✓</div>
+<div>
+<div style="font-size: 16px; font-weight: 700; color: var(--teal-900);">PATIENT VERIFIED</div>
+<div style="font-size: 12px; color: var(--teal-700);">Patient identity matched deterministically across History PDF &amp; PA Form PDF</div>
+</div>
+</div>
+<div style="background: var(--teal-100); color: var(--teal-800); font-weight: 700; font-size: 14px; padding: 6px 14px; border-radius: 20px;">
+Match Score: {score}%
+</div>
+</div>
+</div>''', unsafe_allow_html=True)
+    else:
+        diff_items = "".join([f"<li>{d}</li>" for d in discrepancies])
+        st.markdown(f'''<div style="background: var(--red-50); border: 1.5px solid var(--red-500); border-radius: var(--radius-lg); padding: 20px 24px; margin: 16px 0;">
+<div style="display: flex; align-items: flex-start; gap: 12px;">
+<div style="font-size: 24px;">🛑</div>
+<div style="flex: 1;">
+<div style="font-size: 18px; font-weight: 800; color: var(--red-700); margin-bottom: 6px;">Document Verification Failed</div>
+<div style="font-size: 14px; color: var(--slate-800); margin-bottom: 10px;">The patient information in the submitted documents does not match. Differences detected:</div>
+<ul style="color: var(--red-700); font-size: 13px; font-weight: 600; margin: 0 0 12px 0; padding-left: 20px;">{diff_items}</ul>
+<div style="background: white; border: 1px solid var(--red-200); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--red-700);">🚫 Authorization evaluation has been stopped.</div>
+</div>
+</div>
+</div>''', unsafe_allow_html=True)
+
+    # Field Badges Grid
+    cols = st.columns(len(fields) if fields else 1)
+    for col, (f_name, f_status) in zip(cols, fields.items()):
+        label = f_name.replace('_', ' ').title()
+        if f_status == "MATCH":
+            badge_css = "background: var(--teal-100); color: var(--teal-800); border: 1px solid var(--teal-200);"
+            icon = "✓ MATCH"
+        elif f_status == "MISMATCH":
+            badge_css = "background: var(--red-100); color: var(--red-800); border: 1px solid var(--red-200);"
+            icon = "✗ MISMATCH"
+        else:
+            badge_css = "background: var(--slate-100); color: var(--slate-600); border: 1px solid var(--slate-200);"
+            icon = "N/A"
+
+        with col:
+            st.markdown(f'''<div style="background: white; border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 10px; text-align: center;">
+<div style="font-size: 11px; color: var(--slate-500); text-transform: uppercase; font-weight: 600;">{label}</div>
+<div style="font-size: 12px; font-weight: 700; margin-top: 4px; padding: 2px 6px; border-radius: 4px; display: inline-block; {badge_css}">{icon}</div>
+</div>''', unsafe_allow_html=True)
+
+    # Age Warnings
+    if age_warnings:
+        warn_html = "".join([f"<div>⚠️ {w}</div>" for w in age_warnings])
+        st.markdown(f'''<div style="background: var(--amber-50); border: 1px solid var(--amber-200); border-radius: var(--radius-md); padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--amber-800); font-weight: 600;">{warn_html}</div>''', unsafe_allow_html=True)
+
+    # PII Protection Banner (if verified)
+    if is_verified:
+        age_str = f"Calculated Age: {calc_age}" if calc_age is not None else "Age derived"
+        st.markdown(f'''<div style="background: #f8fafc; border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 14px 18px; margin-top: 14px;">
+<div style="font-size: 13px; font-weight: 700; color: var(--slate-800); margin-bottom: 6px;">🔒 Privacy Boundary &amp; De-identification Active</div>
+<div style="display: flex; gap: 16px; font-size: 12px; color: var(--slate-600); flex-wrap: wrap;">
+<span>✓ PII Identified &amp; Separated</span>
+<span>✓ Raw Text Redacted</span>
+<span>✓ {age_str}</span>
+<span>✓ Zero PII passed to LLM</span>
+</div>
+</div>''', unsafe_allow_html=True)
+

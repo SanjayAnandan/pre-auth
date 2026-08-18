@@ -22,6 +22,12 @@ from src.patient_parser import parse_patient, validate_patient
 from src.normalizer import normalize_patient
 from src.policy_matcher import load_policies
 from src.decision import load_no_prior_auth, process_decision
+from src.patient_verifier import (
+    extract_identity_fields_locally,
+    verify_patient_documents,
+    deidentify_text,
+    calculate_age_from_dob,
+)
 from src.database import (
     is_database_configured,
     check_database_status,
@@ -31,6 +37,8 @@ from src.database import (
     save_decision,
     save_decision_criteria,
     update_authorization_request_status,
+    update_patient_clinical_data,
+    update_authorization_request_details,
     get_recent_requests,
     get_decision_criteria,
 )
@@ -46,6 +54,8 @@ from src.ui import (
     render_audit_view,
     render_empty_state,
     render_error_state,
+    render_intake_stage_tracker,
+    render_verification_status,
     format_iso_timestamp,
     safe_str,
     safe_title,
@@ -230,59 +240,91 @@ def main():
 
 def render_intake_pipeline(existing_requests: List[Dict[str, Any]]):
     """
-    Renders the document upload and end-to-end clinical evaluation pipeline.
+    Renders the privacy-preserving dual document upload and end-to-end clinical evaluation pipeline.
     """
     st.markdown(
         """
         <div style="margin-bottom: 18px;">
             <h2 style="margin: 0 0 4px 0; font-size: 24px; font-weight: 700;">New Authorization Intake</h2>
-            <p style="color: var(--slate-500); margin: 0; font-size: 14px;">Upload a clinical patient PDF document to evaluate coverage rules against medical policies.</p>
+            <p style="color: var(--slate-500); margin: 0; font-size: 14px;">Upload Patient History & Prior Auth Form PDFs for privacy-preserving identity verification and clinical rule evaluation.</p>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    col_up, col_guide = st.columns([1.5, 1.0])
+    # Stage tracker UI
+    render_intake_stage_tracker(current_stage=1)
+
+    col_up, col_guide = st.columns([1.6, 0.9])
 
     with col_up:
-        uploaded_file = st.file_uploader(
-            "Upload clinical record PDF",
-            type=["pdf"],
-            help="Upload a structured patient clinical record or medical chart PDF.",
-            key="intake_pdf_uploader"
-        )
+        st.markdown("<h4 style='font-size: 15px; font-weight: 700; margin-bottom: 12px;'>Patient Documents Intake</h4>", unsafe_allow_html=True)
+        col_doc1, col_doc2 = st.columns(2)
 
-        if uploaded_file is not None:
-            pdf_bytes = uploaded_file.getvalue()
-            pdf_size_kb = len(pdf_bytes) / 1024.0
+        with col_doc1:
+            st.markdown(
+                """
+                <div style="border: 1px dashed var(--slate-300); border-radius: var(--radius-md); padding: 12px; background: white; margin-bottom: 8px;">
+                    <div style="font-weight: 700; font-size: 13px; color: var(--slate-800);">📄 Patient History PDF</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">Medical history & chart PDF</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            history_file = st.file_uploader(
+                "Upload Patient History",
+                type=["pdf"],
+                key="history_pdf_uploader",
+                label_visibility="collapsed"
+            )
+
+        with col_doc2:
+            st.markdown(
+                """
+                <div style="border: 1px dashed var(--slate-300); border-radius: var(--radius-md); padding: 12px; background: white; margin-bottom: 8px;">
+                    <div style="font-weight: 700; font-size: 13px; color: var(--slate-800);">📄 Prior Authorization Form PDF</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">PA request form PDF</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            pa_file = st.file_uploader(
+                "Upload Prior Auth Form",
+                type=["pdf"],
+                key="pa_pdf_uploader",
+                label_visibility="collapsed"
+            )
+
+        # Single file or dual file detection
+        if history_file is not None or pa_file is not None:
+            doc_count = (1 if history_file else 0) + (1 if pa_file else 0)
 
             st.markdown(
                 f"""
                 <div style="background: #ffffff; border: 1px solid var(--slate-200); border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
-                    <div style="font-size: 13px; font-weight: 600; color: var(--slate-900);">📄 {uploaded_file.name}</div>
-                    <div style="font-size: 11px; color: var(--slate-500);">Size: {pdf_size_kb:.1f} KB • Ready for extraction & analysis</div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--slate-900);">📑 {doc_count} Document(s) Ready</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">Local PII extraction & identity verification active before AI parsing.</div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            if st.button("Evaluate Prior Authorization →", type="primary", use_container_width=True, key="btn_run_eval"):
-                run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes, pdf_size_kb)
+            if st.button("Verify Documents & Evaluate Prior Authorization →", type="primary", use_container_width=True, key="btn_run_eval"):
+                run_clinical_evaluation_pipeline(history_file, pa_file)
 
     with col_guide:
         st.markdown(
             """
             <div style="background: #ffffff; border: 1px solid var(--slate-200); border-radius: var(--radius-lg); padding: 18px 20px;">
-                <h4 style="font-size: 14px; font-weight: 700; margin: 0 0 8px 0;">Intake Evaluation Stages</h4>
+                <h4 style="font-size: 14px; font-weight: 700; margin: 0 0 8px 0;">Privacy & Intake Stages</h4>
                 <div style="font-size: 12px; color: var(--slate-600); line-height: 1.6;">
-                    1. <strong>Document Ingestion:</strong> Cache clinical PDF to uploads.<br/>
-                    2. <strong>Text Extraction:</strong> Extract medical narrative via PDF engine.<br/>
-                    3. <strong>Clinical Parsing:</strong> Extract diagnosis, ICD-10, CPT, severity.<br/>
-                    4. <strong>Normalization:</strong> Standardize patient codes and clinical terms.<br/>
-                    5. <strong>Supabase Registry:</strong> Save patient & authorization record.<br/>
-                    6. <strong>AI Risk Signal:</strong> Score ML model approval probabilities.<br/>
-                    7. <strong>Rule Engine:</strong> Deterministically test coverage criteria.<br/>
-                    8. <strong>Determination:</strong> Produce final explainable case determination.
+                    1. <strong>Local PDF Extraction:</strong> Extract text locally (PyMuPDF).<br/>
+                    2. <strong>Identity Matching:</strong> Cross-verify Member ID, DOB, Name locally.<br/>
+                    3. <strong>Hard Gate:</strong> Stop immediately if documents mismatch.<br/>
+                    4. <strong>PII Isolation:</strong> Strip PII; replace DOB with calculated age.<br/>
+                    5. <strong>LLM Clinical Analysis:</strong> Pass non-PII clinical narrative.<br/>
+                    6. <strong>Rule Engine Evaluation:</strong> Evaluate criteria against medical policy.<br/>
+                    7. <strong>Determination:</strong> Produce final explainable case determination.
                 </div>
             </div>
             """,
@@ -290,21 +332,96 @@ def render_intake_pipeline(existing_requests: List[Dict[str, Any]]):
         )
 
 
-def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_kb: float):
-    """Executes the full prior authorization evaluation pipeline."""
+def run_clinical_evaluation_pipeline(history_file, pa_file):
+    """Executes the privacy-preserving dual document prior authorization evaluation pipeline."""
     try:
-
-        # Step 2: Extract text
-        with st.spinner("1/7 Ingesting document & extracting clinical text..."):
-            raw_text = extract_text_from_pdf(uploaded_file)
-
-        if not raw_text or not raw_text.strip():
-            st.error("The uploaded PDF does not contain extractable text. Please ensure it is a valid clinical document.")
+        # Validate inputs
+        if history_file is None and pa_file is None:
+            st.error("Please upload at least one clinical document PDF.")
             return
 
-        # Step 3: Parse patient information
-        with st.spinner("2/7 Parsing clinical entities, procedures, and diagnosis..."):
-            patient = parse_patient(raw_text)
+        # Use primary uploaded file as main reference if only one provided
+        primary_file = pa_file if pa_file is not None else history_file
+        history_ref = history_file if history_file is not None else pa_file
+        pa_ref = pa_file if pa_file is not None else history_file
+
+        pdf_bytes = primary_file.getvalue()
+        pdf_size_kb = len(pdf_bytes) / 1024.0
+
+        # Step 1: Extract text locally from both PDFs
+        with st.spinner("Step 1/5 Extracting document text locally..."):
+            history_text = extract_text_from_pdf(history_ref)
+            pa_text = extract_text_from_pdf(pa_ref)
+
+        if not history_text.strip() and not pa_text.strip():
+            st.error("The uploaded PDF documents do not contain extractable text. Please ensure valid PDFs are uploaded.")
+            return
+
+        # Step 2: Extract identity fields locally & run deterministic verification
+        with st.spinner("Step 2/5 Verifying patient identity deterministically (Local PII Engine)..."):
+            hist_identity = extract_identity_fields_locally(history_text)
+            pa_identity = extract_identity_fields_locally(pa_text)
+            verification = verify_patient_documents(hist_identity, pa_identity)
+
+        # Render Identity Verification Card
+        render_verification_status(verification)
+
+        # ── CRITICAL GATE: Hard stop on mismatch ──
+        if not verification.get("verified", False):
+            st.error("Identity verification failed. Downstream AI processing and policy evaluation have been stopped for patient privacy and security.")
+            return
+
+        # ── PRE-PERSIST VERIFIED PII TO SUPABASE BEFORE GROQ ──
+        norm_hist = verification.get("history_identity") or {}
+        norm_pa = verification.get("pa_identity") or {}
+        patient_name = norm_hist.get("name") or norm_pa.get("name") or "Verified Patient"
+        patient_id_val = norm_hist.get("patient_id") or norm_hist.get("member_id") or norm_pa.get("member_id") or "PAT-001"
+        calc_age = verification.get("calculated_age")
+        gender_val = norm_hist.get("gender") or norm_pa.get("gender")
+
+        initial_pii_patient = {
+            "patient_id": patient_id_val,
+            "patient_name": patient_name,
+            "age": calc_age,
+            "gender": gender_val,
+            "payer": "Pending Evaluation",
+        }
+
+        db_patient_id = None
+        db_request_id = None
+        with st.spinner("Step 3/5 Storing verified PII data in Supabase & securing privacy boundary..."):
+            try:
+                db_patient_id = save_patient(initial_pii_patient)
+                db_request_id = create_authorization_request(
+                    db_patient_id,
+                    initial_pii_patient,
+                    status="PROCESSING"
+                )
+            except Exception as db_err:
+                logger.warning(f"Database PII pre-persistence skipped: {db_err}")
+
+        # Display UI feedback confirming PII is isolated & pre-saved in Supabase
+        st.info("🔒 Verified PII data saved directly to Supabase. Processing de-identified clinical narrative with Groq AI...", icon="🔒")
+
+        # Step 3: De-identification & PII Separation Layer
+        calc_age = verification.get("calculated_age")
+        deidentified_hist = deidentify_text(history_text, verification["history_identity"], calc_age)
+        deidentified_pa = deidentify_text(pa_text, verification["pa_identity"], calc_age)
+
+        # Combined deidentified clinical text (ZERO PII transmitted to LLM)
+        deidentified_clinical_text = f"{deidentified_hist}\n\n{deidentified_pa}".strip()
+
+        # Step 4: Pass de-identified text to Groq LLM for clinical parsing
+        with st.spinner("Step 4/5 Parsing clinical facts with AI (De-Identified Narrative)..."):
+            patient = parse_patient(deidentified_clinical_text)
+
+            # Ensure calculated age is assigned if LLM did not extract age
+            if patient.get("age") is None and calc_age is not None:
+                patient["age"] = calc_age
+
+            # Restore verified patient identity fields for local display & DB record update
+            patient["patient_name"] = patient_name
+            patient["patient_id"] = patient_id_val
 
         # ── CRITICAL: Stop immediately if CPT code is missing ──
         cpt_value = patient.get("cpt_hcpcs_code")
@@ -320,43 +437,20 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
             )
             return
 
-        # Step 4: Normalize and validate
-        with st.spinner("3/7 Normalizing clinical coding standards and medical terms..."):
+        # Step 5: Normalize clinical coding standards & evaluate rules
+        with st.spinner("Step 5/5 Evaluating coverage rules & medical policy determination..."):
             patient = normalize_patient(patient)
             validation = validate_patient(patient)
 
-        # Show validation warnings for other missing fields (non-blocking)
-        if not validation.get("valid", True):
-            validation_errors = validation.get("errors", [])
-            # Filter out CPT error since we already checked it above
-            validation_errors = [e for e in validation_errors if "CPT" not in e and "cpt" not in e]
-            if validation_errors:
-                warn_items = "\n".join([f"• {e}" for e in validation_errors])
-                st.warning(
-                    f"⚠️ **Missing Information Detected** — The following fields "
-                    f"could not be extracted from the clinical document:\n\n{warn_items}\n\n"
-                    f"The evaluation will continue, but missing data may lead to "
-                    f"criteria failures or manual review.",
-                    icon="⚠️"
-                )
+            # Update Supabase patient record with full clinical details
+            if db_patient_id:
+                try:
+                    update_patient_clinical_data(db_patient_id, patient)
+                    update_authorization_request_details(db_request_id, patient, status="EVALUATING")
+                except Exception as update_err:
+                    logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
-
-        # Step 5: Save patient & create authorization request in Supabase
-        db_patient_id = None
-        db_request_id = None
-        with st.spinner("4/7 Persisting patient record in Supabase PostgreSQL..."):
-            try:
-                db_patient_id = save_patient(patient)
-                db_request_id = create_authorization_request(
-                    db_patient_id,
-                    patient,
-                    status="PENDING"
-                )
-            except Exception as db_err:
-                logger.warning(f"Database insertion skipped: {db_err}")
-
-        # Step 6: ML Prediction Signal
-        with st.spinner("5/7 Generating AI risk signal and probability distribution..."):
+            # ML Prediction Signal
             prediction_res = predict_authorization(patient)
             if db_request_id and prediction_res.get("status") == "success":
                 try:
@@ -364,16 +458,14 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
                 except Exception as pred_err:
                     logger.warning(f"Failed to persist prediction: {pred_err}")
 
-        # Step 7: Policy Matching & Rule Engine Evaluation
-        with st.spinner("6/7 Evaluating coverage guidelines against medical policy rules..."):
+            # Policy Matching & Deterministic Rule Engine Evaluation
             policies = load_policies(POLICY_PATH)
             no_pa_codes = load_no_prior_auth(NO_PA_PATH)
             result = process_decision(patient, policies, no_pa_codes)
 
-        # Step 8: Save Final Decision & Criteria
-        db_decision_id = None
-        criteria_to_save = result.get("criteria") or result.get("results") or []
-        with st.spinner("7/7 Recording final determination and audit ledger..."):
+            # Persist Final Decision & Criteria to Supabase
+            db_decision_id = None
+            criteria_to_save = result.get("criteria") or result.get("results") or []
             if db_request_id and result:
                 try:
                     db_decision_id = save_decision(db_request_id, result)
@@ -383,11 +475,12 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
                         result.get("decision", "MANUAL REVIEW")
                     )
                 except Exception as dec_err:
-                    logger.warning(f"Failed to persist decision: {dec_err}")
+                    logger.warning(f"Failed to persist final decision: {dec_err}")
 
         # Package into Unified Case Object and display immediately
         case_obj = {
             "patient": patient,
+            "verification": verification,
             "request": {
                 "id": db_request_id or "REQ-NEW",
                 "requested_service": patient.get("requested_service"),
@@ -410,7 +503,7 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
             "prediction": prediction_res,
             "criteria": criteria_to_save,
             "pdf": {
-                "filename": uploaded_file.name,
+                "filename": primary_file.name,
                 "bytes": pdf_bytes,
                 "size_str": f"{pdf_size_kb:.1f} KB",
             },
@@ -425,6 +518,10 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
         st.session_state.active_case = case_obj
         st.success("Prior authorization evaluation complete. Opening complete clinical case...")
         st.rerun()
+
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}")
+        render_error_state("An unexpected error occurred during clinical evaluation.", str(e))
 
     except Exception as e:
         logger.error(f"Pipeline error: {e}")

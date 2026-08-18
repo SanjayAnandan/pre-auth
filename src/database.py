@@ -314,6 +314,73 @@ def get_recent_requests(limit: int = 50) -> List[Dict[str, Any]]:
         return []
 
 
+def update_patient_clinical_data(db_patient_id: Optional[str], patient_data: Dict[str, Any]) -> bool:
+    """
+    Update clinical facts (diagnosis, CPT, procedures, treatments, etc.) on an existing patient record in Supabase.
+    """
+    if not db_patient_id:
+        return False
+
+    client = get_supabase_client()
+    if client is None:
+        return False
+
+    try:
+        payload = {
+            "diagnosis": patient_data.get("diagnosis"),
+            "icd10_code": patient_data.get("icd10_code"),
+            "severity": patient_data.get("severity"),
+            "severity_evidence": patient_data.get("severity_evidence") or [],
+            "previous_treatment": patient_data.get("previous_treatment") or [],
+            "previous_procedure": patient_data.get("previous_procedure") or [],
+            "requested_service": patient_data.get("requested_service"),
+            "cpt_hcpcs_code": patient_data.get("cpt_hcpcs_code"),
+            "quantity": str(patient_data.get("quantity")) if patient_data.get("quantity") is not None else None,
+            "frequency": str(patient_data.get("frequency")) if patient_data.get("frequency") is not None else None,
+            "provider_specialty": patient_data.get("provider_specialty"),
+            "facility_type": patient_data.get("facility_type"),
+            "documentation": patient_data.get("documentation") or {},
+            "clinical_information": patient_data.get("clinical_information") or {},
+        }
+        if patient_data.get("payer"):
+            payload["payer"] = patient_data.get("payer")
+
+        response = client.table("patients").update(payload).eq("id", db_patient_id).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Error updating patient clinical data in Supabase: {e}")
+        return False
+
+
+def update_authorization_request_details(request_id: Optional[str], patient_data: Dict[str, Any], status: Optional[str] = None) -> bool:
+    """
+    Update requested service and CPT details on an existing authorization request in Supabase.
+    """
+    if not request_id:
+        return False
+
+    client = get_supabase_client()
+    if client is None:
+        return False
+
+    try:
+        payload = {
+            "requested_service": patient_data.get("requested_service"),
+            "cpt_hcpcs_code": patient_data.get("cpt_hcpcs_code"),
+            "quantity": str(patient_data.get("quantity")) if patient_data.get("quantity") is not None else None,
+            "frequency": str(patient_data.get("frequency")) if patient_data.get("frequency") is not None else None,
+            "payer": patient_data.get("payer"),
+        }
+        if status:
+            payload["request_status"] = status
+
+        response = client.table("authorization_requests").update(payload).eq("id", request_id).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Error updating authorization request details: {e}")
+        return False
+
+
 def get_decision_criteria(decision_id: str) -> List[Dict[str, Any]]:
     """
     Fetch all criteria rows evaluated for a specific decision.
@@ -331,4 +398,6 @@ def get_decision_criteria(decision_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error fetching decision criteria: {e}")
         return []
+
+
 
