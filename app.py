@@ -42,6 +42,7 @@ from src.database import (
     get_recent_requests,
     get_decision_criteria,
 )
+from src.auth import init_auth_session, render_login_page
 from src.predictor import predict_authorization
 from src.ui import (
     apply_custom_styles,
@@ -190,6 +191,12 @@ def back_to_requests_callback():
 # ============================================================
 
 def main():
+    # 0. Initialize Auth Session & Guard App Access
+    init_auth_session()
+    if not st.session_state.get("authenticated", False):
+        render_login_page()
+        return
+
     # 1. Fetch DB Status & History Records
     db_status = check_database_status()
     try:
