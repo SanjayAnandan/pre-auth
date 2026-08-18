@@ -1070,6 +1070,83 @@ def render_case_view(case_data, on_back_callback=None):
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Missing Information Alert ───────────────────────────────
+    missing_fields = []
+
+    # CPT / HCPCS code check
+    raw_cpt = patient.get("cpt_hcpcs_code") or request_info.get("cpt_hcpcs_code")
+    if not raw_cpt or str(raw_cpt).strip().upper() in ("", "N/A", "NONE", "NULL"):
+        missing_fields.append(("CPT / HCPCS Code", "The procedure code (CPT/HCPCS) was not found in the clinical document. Policy matching requires a valid CPT code."))
+
+    # Diagnosis check
+    if not patient.get("diagnosis"):
+        missing_fields.append(("Diagnosis", "No diagnosis was extracted from the clinical document."))
+
+    # ICD-10 code check
+    if not patient.get("icd10_code"):
+        missing_fields.append(("ICD-10 Code", "No ICD-10 diagnosis code was found in the clinical document."))
+
+    # Age check
+    if patient.get("age") is None:
+        missing_fields.append(("Patient Age", "Patient age was not found in the clinical document."))
+
+    # Payer check
+    raw_payer = patient.get("payer")
+    if not raw_payer or str(raw_payer).strip().upper() in ("", "N/A", "NONE", "NULL"):
+        missing_fields.append(("Payer / Insurance", "No payer or insurance information was found."))
+
+    # Severity check
+    if not patient.get("severity"):
+        missing_fields.append(("Severity", "Clinical severity level was not documented."))
+
+    # Provider specialty check
+    if not patient.get("provider_specialty"):
+        missing_fields.append(("Provider Specialty", "The referring or ordering provider specialty was not found."))
+
+    # Facility type check
+    if not patient.get("facility_type"):
+        missing_fields.append(("Facility Type", "The facility type was not documented."))
+
+    # Requested service check
+    raw_svc = patient.get("requested_service") or request_info.get("requested_service")
+    if not raw_svc or str(raw_svc).strip().upper() in ("", "N/A", "NONE", "NULL"):
+        missing_fields.append(("Requested Service", "No requested service or procedure name was extracted."))
+
+    # Documentation items check — find items marked False
+    doc_data = patient.get("documentation") or {}
+    missing_doc_items = [k for k, v in doc_data.items() if v is False or v is None]
+    if missing_doc_items:
+        doc_list = ", ".join(missing_doc_items)
+        missing_fields.append(("Documentation Items", f"The following documentation items are missing or not confirmed: {doc_list}"))
+
+    # Check if documentation dict is empty entirely
+    if not doc_data:
+        missing_fields.append(("Documentation", "No documentation items were extracted from the clinical document."))
+
+    if missing_fields:
+        items_html = ""
+        for field_name, field_desc in missing_fields:
+            items_html += f"""
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(220,38,38,0.08);">
+                <span style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:var(--red-100);color:var(--red-600);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;margin-top:1px;">✕</span>
+                <div>
+                    <div style="font-size:13px;font-weight:600;color:var(--red-700);">{field_name}</div>
+                    <div style="font-size:12px;color:var(--slate-600);margin-top:1px;">{field_desc}</div>
+                </div>
+            </div>"""
+
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%);border:1px solid var(--red-200, #fecaca);border-left:4px solid var(--red-500);border-radius:var(--radius-md);padding:16px 18px;margin-bottom:18px;box-shadow:var(--shadow-sm);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span style="font-size:18px;">⚠️</span>
+                <span style="font-size:14px;font-weight:700;color:var(--red-700);">Missing Information Detected</span>
+                <span style="font-size:11px;font-weight:600;color:var(--white);background:var(--red-500);padding:2px 8px;border-radius:10px;margin-left:auto;">{len(missing_fields)} item{"s" if len(missing_fields) != 1 else ""}</span>
+            </div>
+            <div style="font-size:12px;color:var(--slate-600);margin-bottom:10px;">The following required fields could not be extracted from the uploaded clinical document. This may affect policy evaluation and authorization decisions.</div>
+            <div style="background:rgba(255,255,255,0.7);border-radius:var(--radius-sm);padding:4px 12px;">{items_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
     col_l, col_r = st.columns([1.05, 1.15])
 
     with col_l:

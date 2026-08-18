@@ -61,8 +61,7 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent
 POLICY_PATH = ROOT_DIR / "data" / "policies.json"
 NO_PA_PATH = ROOT_DIR / "data" / "no_prior_auth.json"
-UPLOAD_DIR = ROOT_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+
 
 # Page configuration
 st.set_page_config(
@@ -131,20 +130,10 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
     # 3. Prediction details
     pred_data = predictions_list[0] if predictions_list and len(predictions_list) > 0 else {}
 
-    # 4. Matching PDF Document from local uploads cache
+    # 4. PDF not stored locally
     matched_pdf_bytes = None
     matched_pdf_name = f"Patient_{p_data.get('patient_id', 'Record')}.pdf"
     matched_pdf_size = "PDF Document"
-
-    for p_file in UPLOAD_DIR.glob("*.pdf"):
-        try:
-            with open(p_file, "rb") as pf:
-                matched_pdf_bytes = pf.read()
-                matched_pdf_name = p_file.name
-                matched_pdf_size = f"{len(matched_pdf_bytes) / 1024.0:.1f} KB"
-            break
-        except Exception:
-            pass
 
     return {
         "patient": p_data,
@@ -304,10 +293,6 @@ def render_intake_pipeline(existing_requests: List[Dict[str, Any]]):
 def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_kb: float):
     """Executes the full prior authorization evaluation pipeline."""
     try:
-        # Step 1: Save PDF locally
-        saved_pdf_path = UPLOAD_DIR / uploaded_file.name
-        with open(saved_pdf_path, "wb") as f:
-            f.write(pdf_bytes)
 
         # Step 2: Extract text
         with st.spinner("1/7 Ingesting document & extracting clinical text..."):
@@ -321,10 +306,40 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
         with st.spinner("2/7 Parsing clinical entities, procedures, and diagnosis..."):
             patient = parse_patient(raw_text)
 
+        # ── CRITICAL: Stop immediately if CPT code is missing ──
+        cpt_value = patient.get("cpt_hcpcs_code")
+        if not cpt_value or str(cpt_value).strip().upper() in ("", "N/A", "NONE", "NULL"):
+            st.error(
+                "🚫 **CPT / HCPCS Code Not Found** — The uploaded clinical document "
+                "does not contain a valid CPT or HCPCS procedure code. "
+                "A CPT code is required to match against coverage policies and "
+                "evaluate prior authorization.\n\n"
+                "**Please ensure the clinical document includes a CPT/HCPCS code** "
+                "(e.g., 73721 for MRI Knee, 45378 for Colonoscopy) and re-upload.",
+                icon="🚫"
+            )
+            return
+
         # Step 4: Normalize and validate
         with st.spinner("3/7 Normalizing clinical coding standards and medical terms..."):
             patient = normalize_patient(patient)
             validation = validate_patient(patient)
+
+        # Show validation warnings for other missing fields (non-blocking)
+        if not validation.get("valid", True):
+            validation_errors = validation.get("errors", [])
+            # Filter out CPT error since we already checked it above
+            validation_errors = [e for e in validation_errors if "CPT" not in e and "cpt" not in e]
+            if validation_errors:
+                warn_items = "\n".join([f"• {e}" for e in validation_errors])
+                st.warning(
+                    f"⚠️ **Missing Information Detected** — The following fields "
+                    f"could not be extracted from the clinical document:\n\n{warn_items}\n\n"
+                    f"The evaluation will continue, but missing data may lead to "
+                    f"criteria failures or manual review.",
+                    icon="⚠️"
+                )
+
 
         # Step 5: Save patient & create authorization request in Supabase
         db_patient_id = None
@@ -398,7 +413,6 @@ def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_k
                 "filename": uploaded_file.name,
                 "bytes": pdf_bytes,
                 "size_str": f"{pdf_size_kb:.1f} KB",
-                "path": str(saved_pdf_path),
             },
             "audit": {
                 "patient_db_id": db_patient_id,
