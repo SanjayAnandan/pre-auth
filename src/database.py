@@ -303,7 +303,7 @@ def get_recent_requests(limit: int = 50) -> List[Dict[str, Any]]:
 
     try:
         response = client.table("authorization_requests") \
-            .select("*, patients(*), decisions(*), predictions(*)") \
+            .select("*, patients(*), decisions(*)") \
             .order("created_at", desc=True) \
             .limit(limit) \
             .execute()

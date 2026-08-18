@@ -3,7 +3,10 @@ import fitz
 
 def extract_text_from_pdf(uploaded_file):
 
-    pdf_bytes = uploaded_file.getvalue()
+    if hasattr(uploaded_file, "getvalue"):
+        pdf_bytes = uploaded_file.getvalue()
+    else:
+        pdf_bytes = uploaded_file.read()
 
     document = fitz.open(
         stream=pdf_bytes,

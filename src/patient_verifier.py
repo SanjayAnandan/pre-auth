@@ -171,6 +171,7 @@ def normalize_date(date_str: Optional[str]) -> Optional[str]:
 def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
     """
     Extract identity fields from document text using deterministic regex patterns.
+    Supports both structured/form-based documents and unstructured narrative documents.
     Does NOT call any LLM.
     """
     if not text:
@@ -186,64 +187,132 @@ def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
             "stated_age": None,
         }
 
-    # Helper regex search
-    def search_pattern(patterns: List[str]) -> Optional[str]:
-        for pat in patterns:
-            match = re.search(pat, text, re.IGNORECASE)
+    # 1. Name extraction
+    name = None
+    # Structured patterns first
+    name_patterns_structured = [
+        r'(?:Patient\s*Name|Full\s*Name|Name|Patient):\s*([A-Za-z\s\.\,\-]+)',
+    ]
+    for pat in name_patterns_structured:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().split('\n')[0].strip()
+            val = re.split(r'\b(?:DOB|Date|Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address):', val, flags=re.IGNORECASE)[0].strip()
+            val = re.sub(r'[\,\.\:\;\#]', '', val).strip()
+            if val and len(val.split()) >= 1 and val.lower() not in ('n/a', 'none', 'null', 'unknown', 'patient', 'name'):
+                name = val
+                break
+
+    # Narrative patterns if structured search returned no valid name
+    if not name:
+        narrative_name_patterns = [
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:is|was)\s+a\s+(?:\d{1,3}[\-\s]*year[\-\s]*old\s+)?(?:Female|Male|female|male)',
+            r'(?:The\s+patient,?\s+|\bPatient\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),?\s+(?:is|was|\d{1,3}[\-\s]*year)',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),\s+born\s+on',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+\((?:DOB|MRN|Age|Gender)',
+        ]
+        for pat in narrative_name_patterns:
+            m = re.search(pat, text)
+            if m:
+                val = m.group(1).strip()
+                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown', 'patient', 'the patient'):
+                    name = val
+                    break
+
+    # 2. Date of birth
+    dob = None
+    dob_patterns = [
+        r'(?:Date\s*of\s*Birth|DOB|Birth\s*Date):\s*([0-9A-Za-z\/\-\,\s]+)',
+        r'\bborn\s+(?:on\s+)?([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})',
+        r'\bdate\s+of\s+birth\s+(?:is\s+)?([A-Za-z0-9\/\-\,\s]+)',
+    ]
+    for pat in dob_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().split('\n')[0].strip()
+            val = re.split(r'\b(?:Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address):', val, flags=re.IGNORECASE)[0].strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                dob = val
+                break
+
+    # 3. Gender
+    gender = None
+    gender_patterns = [
+        r'(?:Gender|Sex):\s*([A-Za-z]+)',
+        r'\b\d{1,3}[\-\s]*year[\-\s]*old\s+(Female|Male|female|male)\b',
+        r'\bis\s+a\s+(Female|Male|female|male)\b',
+        r'\b(female|male)\s+patient\b',
+    ]
+    for pat in gender_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                gender = val
+                break
+
+    # 4. Stated Age
+    stated_age = None
+    age_patterns = [
+        r'(?:Age):\s*(\d{1,3})',
+        r'\b(\d{1,3})[\-\s]*year[\-\s]*old\b',
+        r'\b(\d{1,3})\s*(?:yo|y\/o|years\s*old)\b',
+        r'\bage[d]?\s+(\d{1,3})\b',
+    ]
+    for pat in age_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            try:
+                stated_age = int(m.group(1))
+                break
+            except ValueError:
+                pass
+
+    # 5. Patient ID / MRN
+    patient_id = None
+    pid_patterns = [
+        r'(?:Patient\s*ID|MRN|Medical\s*Record\s*(?:Number|#)?):\s*([A-Za-z0-9\-\_]+)',
+        r'\bmedical\s+record\s+number\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+        r'\bMRN\s*#?\s*:?\s*([A-Za-z0-9\-\_]+)',
+        r'\bpatient\s+identifier\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+    ]
+    for pat in pid_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().split('\n')[0].strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                patient_id = val
+                break
+
+    # 6. Member ID
+    member_id = None
+    mem_patterns = [
+        r'(?:Member\s*ID|Subscriber\s*ID|Insurance\s*ID|Policy\s*ID|Member\s*#):\s*([A-Za-z0-9\-\_]+)',
+        r'\bmember\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+        r'\bsubscriber\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+    ]
+    for pat in mem_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().split('\n')[0].strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                member_id = val
+                break
+
+    # Phone, Email, Address
+    def search_simple(patterns: List[str]) -> Optional[str]:
+        for p in patterns:
+            match = re.search(p, text, re.IGNORECASE)
             if match:
-                val = match.group(1).strip()
-                # Clean trailing noise or linebreaks
-                val = val.split('\n')[0].strip()
+                val = match.group(1).strip().split('\n')[0].strip()
                 if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
                     return val
         return None
 
-    # Extraction patterns
-    name = search_pattern([
-        r'(?:Patient\s*Name|Name|Patient):\s*([A-Za-z\s\.\,\-]+)',
-        r'(?:Full\s*Name):\s*([A-Za-z\s\.\,\-]+)',
-    ])
-
-    dob = search_pattern([
-        r'(?:Date\s*of\s*Birth|DOB|Birth\s*Date):\s*([0-9A-Za-z\/\-\,\s]+)',
-        r'(?:Date\s*Of\s*Birth):\s*([0-9A-Za-z\/\-\,\s]+)',
-    ])
-
-    patient_id = search_pattern([
-        r'(?:Patient\s*ID|MRN|Medical\s*Record\s*(?:Number|#)?):\s*([A-Za-z0-9\-\_]+)',
-        r'(?:Patient\s*#):\s*([A-Za-z0-9\-\_]+)',
-    ])
-
-    member_id = search_pattern([
-        r'(?:Member\s*ID|Subscriber\s*ID|Insurance\s*ID|Policy\s*ID|Member\s*#):\s*([A-Za-z0-9\-\_]+)',
-        r'(?:Subscriber\s*#):\s*([A-Za-z0-9\-\_]+)',
-    ])
-
-    gender = search_pattern([
-        r'(?:Gender|Sex):\s*([A-Za-z]+)',
-    ])
-
-    phone = search_pattern([
-        r'(?:Phone|Tel|Telephone):\s*([0-9\-\(\)\s\+\.]+)',
-    ])
-
-    email = search_pattern([
-        r'(?:Email|E-mail):\s*([A-Za-z0-9\.\_\%\+\-]+@[A-Za-z0-9\.\-]+\.[A-Za-z]{2,})',
-    ])
-
-    address = search_pattern([
-        r'(?:Address):\s*([^\n]+)',
-    ])
-
-    stated_age = None
-    age_match = re.search(r'(?:Age):\s*(\d{1,3})', text, re.IGNORECASE)
-    if not age_match:
-        age_match = re.search(r'(\d{1,3})\s*(?:years\s*old|yo|y\/o)', text, re.IGNORECASE)
-    if age_match:
-        try:
-            stated_age = int(age_match.group(1))
-        except ValueError:
-            stated_age = None
+    phone = search_simple([r'(?:Phone|Tel|Telephone):\s*([0-9\-\(\)\s\+\.]+)'])
+    email = search_simple([r'(?:Email|E-mail):\s*([A-Za-z0-9\.\_\%\+\-]+@[A-Za-z0-9\.\-]+\.[A-Za-z]{2,})'])
+    address = search_simple([r'(?:Address):\s*([^\n]+)'])
 
     return {
         "patient_id": patient_id,
@@ -314,10 +383,10 @@ def verify_patient_documents(
 ) -> Dict[str, Any]:
     """
     Compare identity extracted from History PDF vs PA Form PDF.
+    Supports both structured and unstructured narrative documents.
     Deterministic logic:
-    - Member ID / Patient ID / DOB are strong identifiers.
-    - Any mismatch in a present strong identifier forces overall MISMATCH.
-    - Name mismatch forces overall MISMATCH.
+    - Member ID / Patient ID / DOB / Name / Gender / Age are evaluated.
+    - Any mismatch in present strong identifier, name, gender, or age forces overall MISMATCH.
     - Secondary missing fields do not automatically fail verification.
     """
     norm_hist = normalize_identity_record(history_identity)
@@ -347,7 +416,6 @@ def verify_patient_documents(
             mismatches_count += 1
             present_compared_count += 1
 
-            # Format discrepancy message
             field_labels = {
                 "date_of_birth": "Date of Birth",
                 "member_id": "Member ID",
@@ -358,15 +426,45 @@ def verify_patient_documents(
             p_raw = pa_identity.get(field) or norm_pa.get(field)
             discrepancies.append(f"{field_label} does not match (History: '{h_raw}' vs PA Form: '{p_raw}')")
 
+    # Age calculation & Stated Age Check
+    calc_age_hist = calculate_age_from_dob(norm_hist.get("date_of_birth"), ref_date)
+    calc_age_pa = calculate_age_from_dob(norm_pa.get("date_of_birth"), ref_date)
+    calc_age = calc_age_hist if calc_age_hist is not None else calc_age_pa
+
+    stated_hist_age = norm_hist.get("stated_age")
+    stated_pa_age = norm_pa.get("stated_age")
+
+    eff_age_hist = calc_age_hist if calc_age_hist is not None else stated_hist_age
+    eff_age_pa = calc_age_pa if calc_age_pa is not None else stated_pa_age
+
+    if eff_age_hist is not None and eff_age_pa is not None:
+        if abs(eff_age_hist - eff_age_pa) <= 1:
+            field_results["age"] = "MATCH"
+            matches_count += 1
+            present_compared_count += 1
+        else:
+            field_results["age"] = "MISMATCH"
+            mismatches_count += 1
+            present_compared_count += 1
+            discrepancies.append(f"Age does not match (History: '{eff_age_hist}' vs PA Form: '{eff_age_pa}')")
+    elif eff_age_hist is not None or eff_age_pa is not None:
+        field_results["age"] = "UNAVAILABLE"
+
     # Evaluate overall status
     has_strong_mismatch = any(field_results.get(f) == "MISMATCH" for f in strong_fields)
     has_name_mismatch = field_results.get("name") == "MISMATCH"
+    has_gender_mismatch = field_results.get("gender") == "MISMATCH"
+    has_age_mismatch = field_results.get("age") == "MISMATCH"
     has_any_mismatch = mismatches_count > 0
 
-    if has_strong_mismatch or has_name_mismatch or has_any_mismatch:
+    if has_strong_mismatch or has_name_mismatch or has_gender_mismatch or has_age_mismatch or has_any_mismatch:
         verified = False
         status = "MISMATCH"
-    elif present_compared_count == 0:
+    elif field_results.get("name") != "MATCH":
+        verified = False
+        status = "INSUFFICIENT_DATA"
+        discrepancies.append("Patient name could not be extracted or matched across documents.")
+    elif (field_results.get("date_of_birth") != "MATCH" and field_results.get("age") != "MATCH" and field_results.get("member_id") != "MATCH" and field_results.get("patient_id") != "MATCH" and field_results.get("gender") != "MATCH"):
         verified = False
         status = "INSUFFICIENT_DATA"
         discrepancies.append("Insufficient patient identity fields found in uploaded documents to verify patient identity.")
@@ -374,7 +472,6 @@ def verify_patient_documents(
         verified = True
         status = "MATCH"
 
-    # Score calculation
     if verified:
         score = 100
     else:
@@ -384,15 +481,7 @@ def verify_patient_documents(
         else:
             score = 0
 
-    # Age calculation & Stated Age Discrepancy Check
-    calc_age_hist = calculate_age_from_dob(norm_hist.get("date_of_birth"), ref_date)
-    calc_age_pa = calculate_age_from_dob(norm_pa.get("date_of_birth"), ref_date)
-    calc_age = calc_age_hist if calc_age_hist is not None else calc_age_pa
-
     age_warnings = []
-    stated_hist_age = norm_hist.get("stated_age")
-    stated_pa_age = norm_pa.get("stated_age")
-
     if calc_age is not None:
         if stated_hist_age is not None and abs(stated_hist_age - calc_age) > 1:
             age_warnings.append(f"AGE DISCREPANCY: History stated age ({stated_hist_age}) differs from calculated age from DOB ({calc_age}).")
@@ -401,6 +490,8 @@ def verify_patient_documents(
     if stated_hist_age is not None and stated_pa_age is not None and abs(stated_hist_age - stated_pa_age) > 1:
         age_warnings.append(f"AGE DISCREPANCY: Stated age in History ({stated_hist_age}) differs from PA Form ({stated_pa_age}).")
 
+    final_calc_age = calc_age if calc_age is not None else (eff_age_hist if eff_age_hist is not None else eff_age_pa)
+
     return {
         "verified": verified,
         "status": status,
@@ -408,7 +499,7 @@ def verify_patient_documents(
         "fields": field_results,
         "discrepancies": discrepancies,
         "age_warnings": age_warnings,
-        "calculated_age": calc_age,
+        "calculated_age": final_calc_age,
         "history_identity": norm_hist,
         "pa_identity": norm_pa,
     }

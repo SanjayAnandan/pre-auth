@@ -219,6 +219,63 @@ class TestPatientVerifier(unittest.TestCase):
         self.assertIn("Severe osteoarthritis of knee", deidentified)
         self.assertIn("CPT 73721", deidentified)
 
+    def test_8_narrative_identity_extraction(self):
+        """Extract identity from narrative text: 'Olivia Bennett is a 58-year-old Female...'"""
+        text = "Olivia Bennett is a 58-year-old Female covered by Synthetic Health Plan A."
+        extracted = extract_identity_fields_locally(text)
+        self.assertEqual(extracted["name"], "Olivia Bennett")
+        self.assertEqual(extracted["stated_age"], 58)
+        self.assertEqual(extracted["gender"], "Female")
+
+    def test_9_narrative_narrative_verification_match(self):
+        """Narrative History + Narrative PA Form for Olivia Bennett -> MATCH"""
+        hist_text = "Olivia Bennett is a 58-year-old Female presenting with primary osteoarthritis of the left knee."
+        pa_text = "The patient, Olivia Bennett, is a 58-year-old female requesting an MRI of the left knee."
+        
+        hist_id = extract_identity_fields_locally(hist_text)
+        pa_id = extract_identity_fields_locally(pa_text)
+        res = verify_patient_documents(hist_id, pa_id)
+
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["status"], "MATCH")
+
+    def test_10_structured_narrative_verification_match(self):
+        """Structured History + Narrative PA Form -> MATCH"""
+        hist_text = "Patient Name: Olivia Bennett\nAge: 58\nGender: Female\nDiagnosis: M17.12"
+        pa_text = "Olivia Bennett is a 58-year-old Female requesting MRI left knee without contrast."
+
+        hist_id = extract_identity_fields_locally(hist_text)
+        pa_id = extract_identity_fields_locally(pa_text)
+        res = verify_patient_documents(hist_id, pa_id)
+
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["status"], "MATCH")
+
+    def test_11_narrative_identity_mismatch(self):
+        """Narrative History (Female) vs Narrative PA Form (Male) -> MISMATCH"""
+        hist_text = "Olivia Bennett is a 58-year-old Female presenting with knee pain."
+        pa_text = "Olivia Bennett is a 58-year-old Male requesting MRI left knee."
+
+        hist_id = extract_identity_fields_locally(hist_text)
+        pa_id = extract_identity_fields_locally(pa_text)
+        res = verify_patient_documents(hist_id, pa_id)
+
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["status"], "MISMATCH")
+
+    def test_12_insufficient_identity(self):
+        """Document text with missing patient name -> INSUFFICIENT_DATA"""
+        hist_text = "The patient presents with severe back pain."
+        pa_text = "Request for MRI Lumbar Spine."
+
+        hist_id = extract_identity_fields_locally(hist_text)
+        pa_id = extract_identity_fields_locally(pa_text)
+        res = verify_patient_documents(hist_id, pa_id)
+
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["status"], "INSUFFICIENT_DATA")
+
 
 if __name__ == "__main__":
     unittest.main()
+

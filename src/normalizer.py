@@ -781,86 +781,60 @@ POLICY CANONICAL VOCABULARY
 """
 
 
-    # ========================================================
-    # GROQ CALL
-    # ========================================================
+    # ============================================================
+    # GROQ CALL WITH SAFE FALLBACK
+    # ============================================================
 
     try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You normalize medical authorization "
-                        "data without changing clinical facts. "
-                        "Return only valid JSON."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt + "\n\nRespond with a valid JSON object only."
+        try:
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You normalize medical authorization "
+                            "data without changing clinical facts. "
+                            "Return only valid JSON."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt + "\n\nRespond with a valid JSON object only."
+                    }
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_object"
                 }
-            ],
-            temperature=0,
-            response_format={
-                "type": "json_object"
-            }
-        )
-        content = response.choices[0].message.content
+            )
+            content = response.choices[0].message.content
+        except Exception:
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You normalize medical authorization data. Return pure valid JSON only."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt + "\n\nReturn pure raw JSON only with no conversational text."
+                    }
+                ],
+                temperature=0
+            )
+            content = response.choices[0].message.content
+
+        if not content:
+            return basic_normalize_patient(patient)
+
+        normalized = json.loads(content)
+        if not isinstance(normalized, dict):
+            return basic_normalize_patient(patient)
     except Exception:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You normalize medical authorization data. Return pure valid JSON only."
-                },
-                {
-                    "role": "user",
-                    "content": prompt + "\n\nReturn pure raw JSON only with no conversational text."
-                }
-            ],
-            temperature=0
-        )
-        content = response.choices[0].message.content
-
-
-    if not content:
-
-        raise ValueError(
-            "Policy-aware normalization returned "
-            "an empty response."
-        )
-
-
-    # ========================================================
-    # PARSE JSON
-    # ========================================================
-
-    try:
-
-        normalized = json.loads(
-            content
-        )
-
-    except json.JSONDecodeError as e:
-
-        raise ValueError(
-            "Policy-aware normalization returned "
-            f"invalid JSON: {e}"
-        )
-
-
-    if not isinstance(
-        normalized,
-        dict
-    ):
-
-        raise ValueError(
-            "Policy-aware normalization did not "
-            "return a JSON object."
-        )
+        # Safe fallback: Missing required evidence remains UNKNOWN -> MANUAL REVIEW
+        return basic_normalize_patient(patient)
 
 
     # ========================================================

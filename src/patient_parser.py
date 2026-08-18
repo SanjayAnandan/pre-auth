@@ -1075,3 +1075,151 @@ def validate_patient(patient):
         "valid": len(errors) == 0,
         "errors": errors
     }
+
+
+# ============================================================
+# SUPPLEMENTAL EVIDENCE MERGER
+# ============================================================
+
+def merge_patient_data(original: Dict[str, Any], supplemental: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deterministically merges supplemental clinical evidence into an existing patient record.
+    Preserves all existing patient identity, diagnosis, and treatment information.
+    Enriches documentation, clinical_information, severity_evidence, and treatment lists.
+    Does NOT overwrite valid existing values with None or False.
+    """
+    if not isinstance(original, dict):
+        return supplemental or {}
+    if not isinstance(supplemental, dict):
+        return dict(original)
+
+    merged = dict(original)
+
+    # 1. Preserve core demographic & request fields if missing/None in supplemental
+    core_fields = [
+        "patient_name", "patient_id", "age", "gender", "payer",
+        "diagnosis", "icd10_code", "severity", "requested_service",
+        "cpt_hcpcs_code", "quantity", "frequency", "provider_specialty", "facility_type"
+    ]
+    for field in core_fields:
+        if merged.get(field) is None and supplemental.get(field) is not None:
+            merged[field] = supplemental[field]
+
+    # 2. Merge documentation dictionary (preserve True, add new True flags)
+    orig_doc = merged.get("documentation") or {}
+    if not isinstance(orig_doc, dict):
+        orig_doc = {}
+    supp_doc = supplemental.get("documentation") or {}
+    if not isinstance(supp_doc, dict):
+        supp_doc = {}
+
+    merged_doc = dict(orig_doc)
+    for k, v in supp_doc.items():
+        if v is True or (isinstance(v, str) and v.strip().lower() in {"true", "yes", "present", "available", "documented"}):
+            merged_doc[k] = True
+        elif k not in merged_doc:
+            merged_doc[k] = v
+
+    merged["documentation"] = merged_doc
+
+    # 3. Merge clinical_information dictionary
+    orig_clin = merged.get("clinical_information") or {}
+    if not isinstance(orig_clin, dict):
+        orig_clin = {}
+    supp_clin = supplemental.get("clinical_information") or {}
+    if not isinstance(supp_clin, dict):
+        supp_clin = {}
+
+    merged_clin = dict(orig_clin)
+    for k, v in supp_clin.items():
+        if v is None:
+            continue
+        if k == "physical_examination":
+            orig_exam = orig_clin.get("physical_examination", [])
+            if isinstance(orig_exam, str):
+                orig_exam = [orig_exam]
+            elif not isinstance(orig_exam, list):
+                orig_exam = []
+
+            supp_exam = v
+            if isinstance(supp_exam, str):
+                supp_exam = [supp_exam]
+            elif not isinstance(supp_exam, list):
+                supp_exam = []
+
+            combined_exam = list(orig_exam)
+            existing_norms = {str(x).strip().lower() for x in combined_exam if x}
+            for item in supp_exam:
+                if item and str(item).strip().lower() not in existing_norms:
+                    combined_exam.append(item)
+                    existing_norms.add(str(item).strip().lower())
+            merged_clin["physical_examination"] = combined_exam
+
+        elif k in ("xray", "xray_report", "imaging", "mri_report"):
+            orig_img = orig_clin.get(k) or {}
+            if isinstance(orig_img, dict) and isinstance(v, dict):
+                combined_img = dict(orig_img)
+                combined_img.update(v)
+                merged_clin[k] = combined_img
+            else:
+                merged_clin[k] = v
+        else:
+            if k not in merged_clin or not merged_clin[k]:
+                merged_clin[k] = v
+
+    merged["clinical_information"] = merged_clin
+
+    # 4. Merge previous_treatment list
+    orig_treat = merged.get("previous_treatment") or []
+    if not isinstance(orig_treat, list):
+        orig_treat = []
+    supp_treat = supplemental.get("previous_treatment") or []
+    if isinstance(supp_treat, list) and supp_treat:
+        combined_treat = list(copy.deepcopy(orig_treat) if hasattr(copy, "deepcopy") else list(orig_treat))
+        for st_item in supp_treat:
+            if isinstance(st_item, dict):
+                st_name = st_item.get("treatment") or st_item.get("specific_treatment")
+                # Find matching treatment in existing list
+                matched_entry = None
+                for t in combined_treat:
+                    if isinstance(t, dict):
+                        t_name = t.get("treatment") or t.get("specific_treatment")
+                        if t_name and st_name and str(t_name).strip().lower() == str(st_name).strip().lower():
+                            matched_entry = t
+                            break
+                if matched_entry:
+                    # Update fields (e.g. duration_days) from supplemental
+                    for tk, tv in st_item.items():
+                        if tv is not None:
+                            matched_entry[tk] = tv
+                else:
+                    combined_treat.append(st_item)
+            elif st_item not in combined_treat:
+                combined_treat.append(st_item)
+        merged["previous_treatment"] = combined_treat
+
+    # 5. Merge previous_procedure list
+    orig_proc = merged.get("previous_procedure") or []
+    if not isinstance(orig_proc, list):
+        orig_proc = []
+    supp_proc = supplemental.get("previous_procedure") or []
+    if isinstance(supp_proc, list) and supp_proc:
+        combined_proc = list(orig_proc)
+        for sp in supp_proc:
+            if sp not in combined_proc:
+                combined_proc.append(sp)
+        merged["previous_procedure"] = combined_proc
+
+    # 6. Merge severity_evidence list
+    orig_sev = merged.get("severity_evidence") or []
+    if not isinstance(orig_sev, list):
+        orig_sev = []
+    supp_sev = supplemental.get("severity_evidence") or []
+    if isinstance(supp_sev, list) and supp_sev:
+        combined_sev = list(orig_sev)
+        for ss in supp_sev:
+            if ss not in combined_sev:
+                combined_sev.append(ss)
+        merged["severity_evidence"] = combined_sev
+
+    return merged

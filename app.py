@@ -1,8 +1,8 @@
 """
 app.py - High-End Healthcare Prior Authorization Case Management Application
 
-Orchestrates prior authorization intake, ML risk prediction, deterministic
-policy evaluation, and Supabase PostgreSQL persistence with a clinical SaaS UI.
+Orchestrates prior authorization intake, deterministic policy evaluation,
+and Supabase PostgreSQL persistence with a clinical SaaS UI.
 """
 
 from pathlib import Path
@@ -18,7 +18,7 @@ load_dotenv(override=True)
 import streamlit as st
 
 from src.pdf_extractor import extract_text_from_pdf
-from src.patient_parser import parse_patient, validate_patient
+from src.patient_parser import parse_patient, validate_patient, merge_patient_data
 from src.normalizer import normalize_patient
 from src.policy_matcher import load_policies
 from src.decision import load_no_prior_auth, process_decision
@@ -33,7 +33,6 @@ from src.database import (
     check_database_status,
     save_patient,
     create_authorization_request,
-    save_prediction,
     save_decision,
     save_decision_criteria,
     update_authorization_request_status,
@@ -42,7 +41,6 @@ from src.database import (
     get_recent_requests,
     get_decision_criteria,
 )
-from src.predictor import predict_authorization
 from src.ui import (
     apply_custom_styles,
     render_top_header,
@@ -108,11 +106,15 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
     req_id = record.get("id")
     p_data = record.get("patients") or {}
     decisions_list = record.get("decisions") or []
-    predictions_list = record.get("predictions") or []
 
-    # 1. Decision details
+    # 1. Decision details — pick the latest decision (most recent created_at)
     if decisions_list and len(decisions_list) > 0:
-        dec_obj = decisions_list[0]
+        sorted_decisions = sorted(
+            decisions_list,
+            key=lambda d: str(d.get("created_at") or ""),
+            reverse=True
+        )
+        dec_obj = sorted_decisions[0]
         dec_id = dec_obj.get("id")
         final_decision = dec_obj.get("final_decision", record.get("request_status", "UNKNOWN"))
         policy_id = dec_obj.get("policy_id") or "POL-001"
@@ -137,10 +139,7 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to fetch criteria for decision {dec_id}: {e}")
 
-    # 3. Prediction details
-    pred_data = predictions_list[0] if predictions_list and len(predictions_list) > 0 else {}
-
-    # 4. PDF not stored locally
+    # 3. PDF not stored locally
     matched_pdf_bytes = None
     matched_pdf_name = f"Patient_{p_data.get('patient_id', 'Record')}.pdf"
     matched_pdf_size = "PDF Document"
@@ -157,7 +156,6 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
             "failed_criteria": failed_criteria,
             "manual_review_reasons": manual_flags,
         },
-        "prediction": pred_data,
         "criteria": criteria_list,
         "pdf": {
             "filename": matched_pdf_name,
@@ -185,6 +183,96 @@ def back_to_requests_callback():
     st.session_state.active_case = None
 
 
+def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
+    """
+    Handles the Manual Review -> Supplemental Upload (single or multiple PDFs) -> Merge -> Deterministic Re-evaluation workflow.
+    """
+    try:
+        if not uploaded_pdfs:
+            st.error("Please select at least one PDF document to upload.")
+            return
+
+        pdf_list = uploaded_pdfs if isinstance(uploaded_pdfs, list) else [uploaded_pdfs]
+        if len(pdf_list) == 0:
+            st.error("Please select at least one PDF document to upload.")
+            return
+
+        orig_patient = case_data.get("patient") or {}
+        merged_patient = dict(orig_patient)
+
+        with st.spinner("Processing additional clinical information..."):
+            for pdf_file in pdf_list:
+                supp_text = extract_text_from_pdf(pdf_file)
+                if not supp_text or not supp_text.strip():
+                    st.error(f"Unable to extract text from document '{getattr(pdf_file, 'name', 'Uploaded File')}'. Please upload a text-based clinical report PDF.")
+                    return
+
+                supp_patient = parse_patient(supp_text)
+                merged_patient = merge_patient_data(merged_patient, supp_patient)
+
+        with st.spinner("Re-evaluating policy criteria..."):
+            merged_patient = normalize_patient(merged_patient)
+
+            policies = load_policies(POLICY_PATH)
+            no_pa_codes = load_no_prior_auth(NO_PA_PATH)
+
+            selected_policy_id = case_data.get("decision", {}).get("policy_id")
+            target_policy = next((p for p in policies if p.get("policy_id") == selected_policy_id), None)
+
+            if target_policy:
+                from src.rule_engine import evaluate_policy
+                eval_result = evaluate_policy(merged_patient, target_policy)
+            else:
+                eval_result = process_decision(merged_patient, policies, no_pa_codes)
+
+            db_request_id = case_data.get("audit", {}).get("request_id") or case_data.get("request", {}).get("id")
+            db_patient_id = case_data.get("audit", {}).get("patient_db_id") or case_data.get("patient", {}).get("id")
+
+            new_decision_id = None
+            criteria_to_save = eval_result.get("results") or eval_result.get("criteria") or []
+            new_status = eval_result.get("decision", "MANUAL REVIEW")
+
+            if db_patient_id:
+                try:
+                    update_patient_clinical_data(db_patient_id, merged_patient)
+                except Exception as e:
+                    logger.warning(f"Could not update patient in database: {e}")
+
+            if db_request_id and isinstance(db_request_id, str):
+                try:
+                    update_authorization_request_details(db_request_id, merged_patient, status="EVALUATING")
+                    new_decision_id = save_decision(db_request_id, eval_result)
+                    if new_decision_id:
+                        save_decision_criteria(new_decision_id, criteria_to_save)
+                    update_authorization_request_status(db_request_id, new_status)
+                except Exception as e:
+                    logger.warning(f"Could not persist re-evaluated decision: {e}")
+
+            updated_case = dict(case_data)
+            updated_case["resubmitted"] = True
+            updated_case["patient"] = merged_patient
+            updated_case["request"] = dict(case_data.get("request", {}))
+            updated_case["request"]["status"] = new_status
+            updated_case["decision"] = {
+                "id": new_decision_id or case_data.get("decision", {}).get("id"),
+                "policy_id": eval_result.get("policy_id") or case_data.get("decision", {}).get("policy_id"),
+                "policy_name": eval_result.get("policy_name") or case_data.get("decision", {}).get("policy_name"),
+                "decision": new_status,
+                "reason": eval_result.get("reason", ""),
+                "failed_criteria": eval_result.get("failed_criteria", []),
+                "manual_review_reasons": eval_result.get("manual_review_reasons", []),
+            }
+            updated_case["criteria"] = criteria_to_save
+
+            st.session_state.active_case = updated_case
+            st.success(f"Policy re-evaluated successfully. Updated Decision: {new_status}")
+            st.rerun()
+
+    except Exception as e:
+        logger.error(f"Error during supplemental document re-evaluation: {e}")
+        render_error_state("Failed to process supplemental clinical document.", str(e))
+
+
 # ============================================================
 # MAIN APPLICATION WORKFLOW
 # ============================================================
@@ -204,7 +292,11 @@ def main():
 
     # If an active case is selected, render the unified Case View
     if st.session_state.active_case is not None:
-        render_case_view(st.session_state.active_case, on_back_callback=back_to_requests_callback)
+        render_case_view(
+            st.session_state.active_case,
+            on_back_callback=back_to_requests_callback,
+            on_resubmit_callback=handle_resubmission_callback
+        )
         return
 
     # 3. Render Selected View
@@ -368,7 +460,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
 
         # ── CRITICAL GATE: Hard stop on mismatch ──
         if not verification.get("verified", False):
-            st.error("Identity verification failed. Downstream AI processing and policy evaluation have been stopped for patient privacy and security.")
+            st.error("Identity verification failed. Further clinical processing and policy evaluation have been stopped for patient privacy and security.")
             return
 
         # ── PRE-PERSIST VERIFIED PII TO SUPABASE BEFORE GROQ ──
@@ -376,7 +468,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         norm_pa = verification.get("pa_identity") or {}
         patient_name = norm_hist.get("name") or norm_pa.get("name") or "Verified Patient"
         patient_id_val = norm_hist.get("patient_id") or norm_hist.get("member_id") or norm_pa.get("member_id") or "PAT-001"
-        calc_age = verification.get("calculated_age")
+        calc_age = verification.get("calculated_age") or norm_hist.get("stated_age") or norm_pa.get("stated_age")
         gender_val = norm_hist.get("gender") or norm_pa.get("gender")
 
         initial_pii_patient = {
@@ -450,14 +542,6 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                 except Exception as update_err:
                     logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
-            # ML Prediction Signal
-            prediction_res = predict_authorization(patient)
-            if db_request_id and prediction_res.get("status") == "success":
-                try:
-                    save_prediction(db_request_id, prediction_res)
-                except Exception as pred_err:
-                    logger.warning(f"Failed to persist prediction: {pred_err}")
-
             # Policy Matching & Deterministic Rule Engine Evaluation
             policies = load_policies(POLICY_PATH)
             no_pa_codes = load_no_prior_auth(NO_PA_PATH)
@@ -500,7 +584,6 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                 "failed_criteria": result.get("failed_criteria", []),
                 "manual_review_reasons": result.get("manual_review_reasons", []),
             },
-            "prediction": prediction_res,
             "criteria": criteria_to_save,
             "pdf": {
                 "filename": primary_file.name,
@@ -518,10 +601,6 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         st.session_state.active_case = case_obj
         st.success("Prior authorization evaluation complete. Opening complete clinical case...")
         st.rerun()
-
-    except Exception as e:
-        logger.error(f"Pipeline error: {e}")
-        render_error_state("An unexpected error occurred during clinical evaluation.", str(e))
 
     except Exception as e:
         logger.error(f"Pipeline error: {e}")

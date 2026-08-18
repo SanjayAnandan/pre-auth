@@ -512,6 +512,16 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 # 2. HELPERS
 # ============================================================
 
+def _get_decision(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return "UNKNOWN"
+    decs = item.get("decisions") or []
+    if decs and len(decs) > 0:
+        sorted_decs = sorted(decs, key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return str(sorted_decs[0].get("final_decision") or item.get("request_status") or "PENDING").upper()
+    return str(item.get("request_status") or "PENDING").upper()
+
+
 def safe_str(val, default="Not provided"):
     if val is None: return default
     s = str(val).strip()
@@ -759,29 +769,19 @@ def render_all_requests_view(requests, on_select_case_callback=None):
 
 def _render_request_row(item, idx, on_select_case_callback):
     p = item.get("patients") or {}
-    decs = item.get("decisions") or []
-    preds = item.get("predictions") or []
     name = safe_title(p.get("patient_name","Unknown"))
     pid = safe_str(p.get("patient_id","N/A"))
     svc = safe_title(item.get("requested_service") or "Service")
     cpt = safe_upper(item.get("cpt_hcpcs_code") or "N/A")
     payer = safe_title(item.get("payer") or p.get("payer") or "N/A")
     dt = format_iso_timestamp(item.get("created_at"))
-    dec = decs[0].get("final_decision","PENDING") if decs else item.get("request_status","PENDING")
+    dec = _get_decision(item)
     badge = get_status_badge_html(dec)
     req_id_short = str(item.get('id',''))[:8]
 
-    pred_txt = ""
-    if preds:
-        pc = preds[0].get("predicted_class","")
-        pa = preds[0].get("approval_probability")
-        if pc and pa is not None: pred_txt = f"AI: {str(pc).upper()} ({int(pa*100)}%)"
-
-    ai_span = f"🤖 {pred_txt} · " if pred_txt else ""
-
     col_i, col_a = st.columns([5, 1])
     with col_i:
-        st.markdown(f"""<div class="request-row-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;"><div><span style="font-size:14px;font-weight:700;color:var(--slate-900);">👤 {name}</span> <span style="font-size:12px;color:var(--slate-500);margin-left:8px;font-family:monospace;">MRN: {pid}</span></div><div>{badge}</div></div><div style="font-size:13px;color:var(--slate-700);margin-bottom:4px;"><strong>{svc}</strong> · <code>{cpt}</code> · {payer}</div><div style="font-size:11px;color:var(--slate-500);">{ai_span}📅 {dt} · <span style="font-family:monospace;">ID: {req_id_short}</span></div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="request-row-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;"><div><span style="font-size:14px;font-weight:700;color:var(--slate-900);">👤 {name}</span> <span style="font-size:12px;color:var(--slate-500);margin-left:8px;font-family:monospace;">MRN: {pid}</span></div><div>{badge}</div></div><div style="font-size:13px;color:var(--slate-700);margin-bottom:4px;"><strong>{svc}</strong> · <code>{cpt}</code> · {payer}</div><div style="font-size:11px;color:var(--slate-500);">📅 {dt} · <span style="font-family:monospace;">ID: {req_id_short}</span></div></div>""", unsafe_allow_html=True)
     with col_a:
         st.write("")
         if st.button("Open Case →", key=f"open_{item.get('id')}_{idx}", use_container_width=True):
@@ -1011,7 +1011,7 @@ def render_policies_view(policies_data):
 # 8. CASE VIEW (Unified)
 # ============================================================
 
-def render_case_view(case_data, on_back_callback=None):
+def render_case_view(case_data, on_back_callback=None, on_resubmit_callback=None):
     patient = case_data.get("patient") or {}
     request_info = case_data.get("request") or {}
     decision_info = case_data.get("decision") or {}
@@ -1219,9 +1219,72 @@ def render_case_view(case_data, on_back_callback=None):
         </div>
         """, unsafe_allow_html=True)
 
-        # AI Prediction
-        st.markdown('<div class="case-section-title">🤖 AI Prediction</div>', unsafe_allow_html=True)
-        _render_ai_prediction(prediction_info)
+        # ── MANUAL REVIEW WORKFLOW SECTION ─────────────────────────
+        if final_dec in ("MANUAL REVIEW", "MANUAL_REVIEW"):
+            st.markdown('<div class="case-section-title">📂 Additional Information Required</div>', unsafe_allow_html=True)
+
+            missing_items = []
+            if criteria_list:
+                for c in criteria_list:
+                    if str(c.get("status", "")).upper() in ("UNKNOWN", "MISSING"):
+                        missing_items.append((c.get("criterion", "Required Evidence"), c.get("reason", "")))
+            if not missing_items and manual:
+                for m in manual:
+                    missing_items.append(("Required Evidence", m))
+
+            missing_html_list = []
+            for crit_name, item_reason in missing_items:
+                item_str = str(item_reason or crit_name)
+                crit_norm = str(crit_name).lower()
+                if "neuro" in item_str.lower() or "neuro" in crit_norm:
+                    missing_html_list.append(
+                        "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
+                        "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Neurological examination</span><br/>"
+                        "<span style='font-size:12px;color:var(--slate-600);'>Please provide documented neurological examination findings (e.g. sensory, motor strength, reflexes, straight-leg raise findings).</span>"
+                        "</div>"
+                    )
+                elif any(img in item_str.lower() or img in crit_norm for img in ["imaging", "x-ray", "xray", "mri", "ct"]):
+                    missing_html_list.append(
+                        "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
+                        "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Relevant imaging report</span><br/>"
+                        "<span style='font-size:12px;color:var(--slate-600);'>Please provide the relevant X-ray/MRI/CT REPORT or documented imaging findings.</span>"
+                        "</div>"
+                    )
+                else:
+                    missing_html_list.append(
+                        f"<div style='margin-bottom:8px;'><span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ {crit_name}</span><br/><span style='font-size:12px;color:var(--slate-600);'>{item_str}</span></div>"
+                    )
+
+            missing_details_html = "".join(missing_html_list) if missing_html_list else "<div style='font-size:12px;color:var(--amber-700);'>⚠ Required policy evidence was not available in submitted documents.</div>"
+
+            st.markdown(f"""
+            <div style="background:var(--amber-50);border:1px solid var(--amber-200, #fde68a);border-radius:var(--radius-md);padding:16px;margin-bottom:14px;">
+                <div style="font-size:13px;font-weight:700;color:var(--amber-800);margin-bottom:4px;">ADDITIONAL INFORMATION REQUIRED</div>
+                <div style="font-size:12px;color:var(--slate-700);margin-bottom:12px;">The authorization cannot be automatically approved because the following required evidence was not found:</div>
+                {missing_details_html}
+                <div style="font-size:12px;color:var(--slate-600);font-style:italic;margin-top:8px;">Upload only the clinical document(s) requested above. You do not need to resubmit the original Patient History or Prior Authorization Form.</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("<div style='font-weight:700;font-size:13px;color:var(--slate-800);margin-bottom:4px;'>Provide Missing Clinical Evidence</div>", unsafe_allow_html=True)
+            supp_files = st.file_uploader(
+                "Provide Missing Clinical Evidence",
+                type=["pdf"],
+                accept_multiple_files=True,
+                key=f"resubmit_pdf_{req_id}",
+                help="Upload supplemental text-based clinical report PDF(s)"
+            )
+            st.markdown(
+                "<div style='font-size:11px;color:var(--slate-500);margin-top:2px;margin-bottom:10px;'>"
+                "<strong>Examples:</strong> Neurological examination report, X-ray/MRI/CT report, treatment documentation, procedure report."
+                "</div>",
+                unsafe_allow_html=True
+            )
+
+            if supp_files:
+                if st.button("Submit Additional Information & Re-evaluate →", type="primary", use_container_width=True, key=f"btn_resubmit_{req_id}"):
+                    if on_resubmit_callback:
+                        on_resubmit_callback(case_data, supp_files)
 
         # Criteria
         st.markdown('<div class="case-section-title">⚙️ Policy Evaluation</div>', unsafe_allow_html=True)
@@ -1236,36 +1299,20 @@ def render_case_view(case_data, on_back_callback=None):
 
 
 # ============================================================
-# 9. AI PREDICTION
+# 9. DEPRECATED AI PREDICTION HELPER (REMOVED FROM UI)
 # ============================================================
 
 def _render_ai_prediction(pred):
-    pc = pred.get("predicted_class"); pa = pred.get("approval_probability"); pd_ = pred.get("denial_probability"); pr = pred.get("review_probability")
-    mn = pred.get("model_name","Random Forest"); mv = pred.get("model_version","1.0")
-    if pc and pa is not None and pd_ is not None and pr is not None:
-        pa_pct = max(0,min(100,int(round(pa*100)))); pd_pct = max(0,min(100,int(round(pd_*100)))); pr_pct = max(0,min(100,int(round(pr*100))))
-        st.markdown(f"""
-        <div class="ai-prediction-panel">
-            <div class="ai-disclaimer">⚠ <strong>AI Prediction:</strong> Policy decision remains the source of truth.</div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                <div><span style="font-size:13px;color:var(--slate-600);">Predicted: </span><strong style="color:var(--teal-700);">{str(pc).upper()}</strong></div>
-                <span style="font-size:11px;color:var(--slate-500);font-family:'IBM Plex Mono',monospace;">{mn} ({mv})</span>
-            </div>
-            <div class="prob-bar-row"><span class="prob-bar-label">Approval</span><div class="prob-bar-track"><div class="prob-bar-fill" style="width:{pa_pct}%;background:var(--green-500);"></div></div><span class="prob-bar-pct">{pa_pct}%</span></div>
-            <div class="prob-bar-row"><span class="prob-bar-label">Denial</span><div class="prob-bar-track"><div class="prob-bar-fill" style="width:{pd_pct}%;background:var(--red-500);"></div></div><span class="prob-bar-pct">{pd_pct}%</span></div>
-            <div class="prob-bar-row"><span class="prob-bar-label">Review</span><div class="prob-bar-track"><div class="prob-bar-fill" style="width:{pr_pct}%;background:var(--amber-500);"></div></div><span class="prob-bar-pct">{pr_pct}%</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="ai-prediction-panel" style="padding:12px 14px;"><span style="font-size:12px;color:var(--slate-500);">ℹ AI prediction not available for this request.</span></div>', unsafe_allow_html=True)
+    """Deprecated AI prediction renderer. Retained as empty no-op for backward compatibility."""
+    pass
 
 
 def _render_criterion(c):
     s = str(c.get("status","UNKNOWN")).upper(); n = c.get("criterion","Criterion"); r = c.get("reason","")
-    if s == "PASSED": cc, ic, st_txt, sc = "criterion-card-passed","✓","PASSED","var(--green-700)"
-    elif s == "FAILED": cc, ic, st_txt, sc = "criterion-card-failed","✕","FAILED","var(--red-700)"
-    elif s == "NOT_APPLICABLE": cc, ic, st_txt, sc = "criterion-card-na","—","N/A","var(--slate-500)"
-    else: cc, ic, st_txt, sc = "criterion-card-warn","⚠",s,"var(--amber-700)"
+    if s in ("PASSED", "PASS"): cc, ic, st_txt, sc = "criterion-card-passed","✓","PASSED","var(--green-700)"
+    elif s in ("FAILED", "FAIL"): cc, ic, st_txt, sc = "criterion-card-failed","✕","FAILED","var(--red-700)"
+    elif s in ("NOT_APPLICABLE", "N/A"): cc, ic, st_txt, sc = "criterion-card-na","—","N/A","var(--slate-500)"
+    else: cc, ic, st_txt, sc = "criterion-card-warn","⚠","MISSING" if s == "UNKNOWN" else s,"var(--amber-700)"
     st.markdown(f"""
     <div class="criterion-card {cc}">
         <div class="criterion-top-row"><span class="criterion-title"><span style="color:{sc};font-weight:bold;">{ic}</span> {n}</span><span style="font-size:11px;font-weight:700;color:{sc};font-family:'IBM Plex Mono',monospace;">{st_txt}</span></div>
@@ -1276,19 +1323,34 @@ def _render_criterion(c):
 
 def _render_timeline(case_data):
     a = case_data.get("audit") or {}
-    dt = format_iso_timestamp_full(a.get("created_at") or case_data.get("request",{}).get("created_at"))
-    rid = safe_str(a.get("request_id") or case_data.get("request",{}).get("id"))
+    req = case_data.get("request") or {}
+    dt = format_iso_timestamp_full(a.get("created_at") or req.get("created_at"))
+    rid = safe_str(a.get("request_id") or req.get("id"))
     pid = safe_str(a.get("patient_db_id") or case_data.get("patient",{}).get("id"))
     did = safe_str(a.get("decision_id") or case_data.get("decision",{}).get("id"))
-    st.markdown(f"""
-    <div class="audit-timeline">
-        <div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📄 Document Received</div><div class="timeline-time">{dt}</div></div></div>
-        <div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">👤 Patient Data Extracted</div><div class="timeline-time">DB: {pid[:12]}...</div></div></div>
-        <div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🤖 AI Prediction Generated</div><div class="timeline-time">Random Forest v1.0</div></div></div>
-        <div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Rule Engine</div></div></div>
-        <div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Decision: {did[:12]}... · Req: {rid[:12]}...</div></div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    pol_id = safe_str(case_data.get("decision",{}).get("policy_id") or "POL-001")
+    resubmitted = case_data.get("resubmitted") or req.get("resubmitted") or False
+
+    steps = [
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📄 Document Received</div><div class="timeline-time">{dt}</div></div></div>',
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">👤 Patient Data Extracted</div><div class="timeline-time">DB: {pid[:12]}...</div></div></div>',
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🔒 Patient Identity Verified</div><div class="timeline-time">PII Isolation Engine</div></div></div>',
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📋 Policy Matched</div><div class="timeline-time">Policy: {pol_id}</div></div></div>',
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Deterministic Rule Engine</div></div></div>',
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Initial Decision Recorded · Req: {rid[:12]}...</div></div></div>'
+    ]
+
+    if resubmitted:
+        steps.extend([
+            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">📂 Additional Information Submitted</div><div class="timeline-time">Supplemental Document Received (Existing Request Re-evaluation)</div></div></div>',
+            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Re-evaluated</div><div class="timeline-time">Existing Request Policy Criteria Re-evaluation</div></div></div>',
+            f'<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">🎯 Updated Decision Recorded</div><div class="timeline-time">Updated Decision: {did[:12]}...</div></div></div>'
+        ])
+
+    steps_body = "\n".join(steps)
+    timeline_html = f'<div class="audit-timeline">\n{steps_body}\n</div>'
+
+    st.markdown(timeline_html, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -1360,7 +1422,10 @@ def render_error_state(msg="Unable to load records.", tech_err=None):
 
 def _get_decision(r):
     dl = r.get("decisions") or []
-    return (dl[0].get("final_decision","") if dl else r.get("request_status","")).upper()
+    if dl and len(dl) > 0:
+        sorted_decs = sorted(dl, key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return str(sorted_decs[0].get("final_decision") or r.get("request_status") or "PENDING").upper()
+    return str(r.get("request_status") or "PENDING").upper()
 
 def _matches_search(r, q):
     q = q.lower().strip()
