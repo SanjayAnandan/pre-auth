@@ -89,15 +89,51 @@ The system automates the end-to-end Prior Authorization lifecycle:
 
 ## 3. Technology Stack
 
-| Layer | Technologies Used | Description / Purpose |
+### 🖥️ Frontend & UI Framework
+* **Streamlit (`streamlit`)**: Web framework for building interactive clinical SaaS dashboards, real-time metrics, navigation views, and case management interfaces.
+* **Custom Clinical Design System (CSS)**: Custom Vanilla CSS embedded via `st.markdown()` in [`src/ui.py`](file:///d:/cts%20hackthon/sanjayrepo/pre-auth/src/ui.py) providing:
+  * Dark clinical color palette (deep slate, cyan highlights, emerald approval badges, crimson denial alerts)
+  * Glassmorphism card layouts & metric widgets
+  * Responsive 5-stage intake progress tracker
+
+### 🤖 AI & Natural Language Processing (LLM)
+* **Groq API (`groq`)**: Ultra-fast LLM inference API running models such as **`llama-3.3-70b-versatile`** or **`llama3-70b-8192`**.
+* **Structured JSON Mode**: System prompts with strict schema enforcement to extract medical entities (ICD-10, CPT/HCPCS, severity ratings, previous therapies, and lab evidence).
+* **SHA-256 In-Memory Caching (`hashlib`)**: Computes SHA-256 hashes of document text to cache LLM extraction results and eliminate redundant API costs.
+* **Deterministic Regex Fallback Engine**: Local regex-based clinical entity parser in [`src/patient_parser.py`](file:///d:/cts%20hackthon/sanjayrepo/pre-auth/src/patient_parser.py) that automatically handles extraction if the Groq API key is missing or offline.
+
+### ⚖️ Decision Engines & Machine Learning
+* **Machine Learning Risk Predictor (`src/predictor.py`)**: Custom statistical risk model that calculates probability distributions:
+  $$P(\text{Approval}), P(\text{Denial}), P(\text{Manual Review})$$
+  Evaluates clinical severity weights, prior treatment completion ratios, and diagnostic alignment.
+* **Deterministic Policy Engine (`src/rule_engine.py`)**: Safety-first clinical rule evaluator that enforces payer guidelines (`data/policies.json`), evaluating step therapy requirements, severity thresholds, required documentation, and contraindications.
+* **Fast-Track Exclusion Matcher (`src/policy_matcher.py`)**: Instant lookup against `data/no_prior_auth.json` to auto-approve procedures exempt from prior authorization.
+
+### 📄 Document Ingestion & Processing
+* **`pypdf` / `pdfplumber`**: High-accuracy PDF text extraction engines ([`src/pdf_extractor.py`](file:///d:/cts%20hackthon/sanjayrepo/pre-auth/src/pdf_extractor.py)) that read raw clinical charts, discharge summaries, and doctor notes.
+
+### 🗄️ Database & Cloud Persistence
+* **Supabase (PostgreSQL)**: Managed cloud PostgreSQL database.
+* **Supabase Python Client (`supabase`)**: Database access layer ([`src/database.py`](file:///d:/cts%20hackthon/sanjayrepo/pre-auth/src/database.py)) managing transactions across 5 core tables (`patients`, `authorization_requests`, `predictions`, `decisions`, `decision_criteria`).
+* **PostgreSQL Extensions**: `pgcrypto` for secure UUID primary keys (`gen_random_uuid()`) and indexed JSONB columns for clinical evidence.
+
+### 🔒 Patient Privacy & Identity Verification
+* **PHI De-identification Engine (`src/patient_verifier.py`)**: Local sanitization and token masking for Protected Health Information (PHI) to comply with HIPAA guidelines.
+* **Demographic Cross-Verification**: Identity check module that calculates exact patient age from DOB and cross-matches Patient Name, DOB, and MRN/Patient ID against claim records.
+
+### 📊 Technology Stack Overview Table
+
+| Category | Component / Technology | Role in Project |
 | :--- | :--- | :--- |
-| **Frontend UI** | Streamlit, Custom CSS Design System | Modern clinical SaaS dashboard with dark theme, responsive grids, metric cards, status badges, and interactive navigation. |
-| **LLM & Parsing** | Groq API (`llama-3.3-70b-versatile` / `llama3-70b-8192`), Regex Fallback | Structured extraction of medical JSON schemas from unstructured clinical narratives. |
-| **Document Processing** | `pypdf`, `pdfplumber` | Extracts clean raw text from uploaded patient PDF files. |
-| **ML Engine** | Custom Statistical Risk Engine (`src/predictor.py`) | Predicts risk profile (Approval, Denial, Manual Review) based on clinical severity, codes, and historical weights. |
-| **Rule Engine** | Deterministic Policy Evaluator (`src/rule_engine.py`) | Evaluates step-therapy, severity evidence, required documentation, and contraindications. |
-| **Database** | Supabase (PostgreSQL) | Managed cloud database with 5 interconnected tables (`patients`, `authorization_requests`, `predictions`, `decisions`, `decision_criteria`). |
-| **Utilities** | Python `hashlib`, `dotenv`, `logging`, `json` | In-memory SHA-256 caching for document parsing, environment management, and system auditing. |
+| **Language** | Python 3.9+ | Primary runtime environment |
+| **Web Framework** | Streamlit | Frontend SaaS application & UI state router |
+| **Styling** | Custom Vanilla CSS | Dark theme, metric cards, status tags |
+| **LLM Provider** | Groq API (`llama-3.3-70b-versatile`) | Unstructured medical PDF to structured JSON parsing |
+| **Document Reader** | `pypdf` / `pdfplumber` | PDF document text extraction |
+| **Risk Modeling** | Custom ML Engine (`src/predictor.py`) | Approval probability calculation |
+| **Rule Engine** | Policy Evaluator (`src/rule_engine.py`) | Deterministic clinical criteria evaluation |
+| **Database** | Supabase (PostgreSQL) | Cloud persistence & audit trail tracking |
+| **Security & PHI** | Custom Verifier (`src/patient_verifier.py`) | Demographic verification & PHI de-identification |
 
 ---
 
