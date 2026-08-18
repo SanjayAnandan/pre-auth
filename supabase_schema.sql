@@ -116,6 +116,26 @@ CREATE INDEX IF NOT EXISTS idx_decision_criteria_decision_id ON decision_criteri
 CREATE INDEX IF NOT EXISTS idx_decision_criteria_status ON decision_criteria(status);
 
 -- ------------------------------------------------------------------------------
+-- TABLE 6: user_profiles
+-- Purpose: Store registered clinical user accounts and role credentials
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE NOT NULL,
+    username TEXT,
+    password TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    clinical_role TEXT NOT NULL,
+    department TEXT,
+    initials TEXT,
+    badge_label TEXT,
+    color_hex TEXT DEFAULT '#0f766e',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
+
+-- ------------------------------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS) CONFIGURATION
 -- Allow application API access
 -- ------------------------------------------------------------------------------
@@ -124,4 +144,6 @@ ALTER TABLE authorization_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE predictions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE decisions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE decision_criteria DISABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles DISABLE ROW LEVEL SECURITY;
+
 

@@ -70,10 +70,22 @@ def init_auth_session():
 
 
 def get_all_users() -> Dict[str, Dict[str, Any]]:
-    """Returns combined map of default users and newly registered custom users."""
+    """Returns combined map of default users, Supabase DB users, and session custom users."""
     users = dict(DEFAULT_USERS)
+
+    # Load users persisted in Supabase database
+    try:
+        from src.database import get_user_profiles_from_db
+        db_users = get_user_profiles_from_db()
+        for u in db_users:
+            if u.get("email"):
+                users[u["email"].lower()] = u
+    except Exception:
+        pass
+
     if "custom_users" in st.session_state:
         users.update(st.session_state.custom_users)
+
     return users
 
 
@@ -81,26 +93,26 @@ def verify_credentials(username_or_email: str, password: str) -> Optional[Dict[s
     """Validates login credentials against all registered user accounts."""
     all_users = get_all_users()
     key = username_or_email.strip().lower()
-    
+
     # Direct match by email key
     if key in all_users and all_users[key]["password"] == password:
         return all_users[key]
-    
+
     # Match by username property
     for user_info in all_users.values():
         u_name = user_info.get("username", "").lower()
         u_email = user_info.get("email", "").lower()
         if (u_name == key or u_email == key) and user_info["password"] == password:
             return user_info
-            
+
     return None
 
 
 def register_new_user(name: str, email: str, password: str, role: str) -> Dict[str, Any]:
-    """Registers a new clinical user account into session memory."""
+    """Registers a new clinical user account into session memory and Supabase DB."""
     clean_email = email.strip().lower()
     clean_username = clean_email.split("@")[0]
-    
+
     # Compute initials
     name_parts = [p for p in name.replace("Dr.", "").replace("MD", "").replace("RN", "").replace("CPC", "").replace("CHC", "").strip().split() if p]
     if len(name_parts) >= 2:
@@ -118,7 +130,7 @@ def register_new_user(name: str, email: str, password: str, role: str) -> Dict[s
         "Compliance & Audit Manager": {"dept": "Regulatory Assurance", "badge": "Compliance Auditor", "color": "#b45309"},
         "Attending Physician / Reviewer": {"dept": "Clinical Practice", "badge": "Physician Reviewer", "color": "#0d9488"},
     }
-    
+
     meta = role_meta.get(role, {"dept": "Clinical Operations", "badge": role, "color": "#0d9488"})
 
     new_user = {
@@ -137,6 +149,14 @@ def register_new_user(name: str, email: str, password: str, role: str) -> Dict[s
         st.session_state.custom_users = {}
 
     st.session_state.custom_users[clean_email] = new_user
+
+    # Persist to Supabase PostgreSQL database table 'user_profiles'
+    try:
+        from src.database import save_user_profile
+        save_user_profile(new_user)
+    except Exception as db_err:
+        st.warning(f"Account active in session. DB notice: {db_err}")
+
     return new_user
 
 

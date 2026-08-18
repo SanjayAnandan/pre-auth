@@ -400,4 +400,65 @@ def get_decision_criteria(decision_id: str) -> List[Dict[str, Any]]:
         return []
 
 
+def save_user_profile(user_data: Dict[str, Any]) -> Optional[str]:
+    """
+    Insert registered user account into 'user_profiles' table in Supabase.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return None
+
+    try:
+        payload = {
+            "email": user_data.get("email"),
+            "username": user_data.get("username"),
+            "password": user_data.get("password"),
+            "full_name": user_data.get("name"),
+            "clinical_role": user_data.get("role"),
+            "department": user_data.get("department"),
+            "initials": user_data.get("initials"),
+            "badge_label": user_data.get("badge"),
+            "color_hex": user_data.get("color", "#0f766e"),
+        }
+        response = client.table("user_profiles").insert(payload).execute()
+        if response.data and len(response.data) > 0:
+            user_id = response.data[0]["id"]
+            logger.info(f"User profile persisted to Supabase with ID: {user_id}")
+            return user_id
+        return None
+    except Exception as e:
+        logger.warning(f"Could not persist user profile to Supabase: {e}")
+        return None
+
+
+def get_user_profiles_from_db() -> List[Dict[str, Any]]:
+    """
+    Fetch all registered user profiles from Supabase 'user_profiles' table.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return []
+
+    try:
+        response = client.table("user_profiles").select("*").execute()
+        users = []
+        for row in (response.data or []):
+            users.append({
+                "email": row.get("email"),
+                "username": row.get("username"),
+                "password": row.get("password"),
+                "name": row.get("full_name"),
+                "role": row.get("clinical_role"),
+                "department": row.get("department"),
+                "initials": row.get("initials"),
+                "badge": row.get("badge_label"),
+                "color": row.get("color_hex", "#0f766e"),
+            })
+        return users
+    except Exception as e:
+        logger.warning(f"Could not fetch user profiles from Supabase: {e}")
+        return []
+
+
+
 
