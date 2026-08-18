@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
+from src.pdf_report import generate_report
 
 logger = logging.getLogger(__name__)
 
@@ -541,6 +542,8 @@ def format_iso_timestamp(ts):
     if not ts: return "—"
     try:
         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
         return dt.strftime("%b %d, %Y")
     except Exception:
         return str(ts)[:10]
@@ -549,6 +552,8 @@ def format_iso_timestamp_full(ts):
     if not ts: return "—"
     try:
         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
         return dt.strftime("%b %d, %Y • %I:%M %p")
     except Exception:
         return str(ts)[:19]
@@ -1030,9 +1035,26 @@ def render_case_view(case_data, on_back_callback=None, on_resubmit_callback=None
     dt = format_iso_timestamp_full(request_info.get("created_at") or audit_info.get("created_at"))
     badge = get_status_badge_html(final_dec)
 
-    if st.button("← Back to Requests", key="btn_back"):
-        if on_back_callback: on_back_callback()
-        st.rerun()
+    col_hdr_l, col_hdr_r = st.columns([1, 1])
+    with col_hdr_l:
+        if st.button("← Back to Requests", key="btn_back"):
+            if on_back_callback: on_back_callback()
+            st.rerun()
+
+    with col_hdr_r:
+        try:
+            report_pdf_bytes = generate_report(case_data)
+            st.download_button(
+                label="📑 Download Decision Report (PDF)",
+                data=report_pdf_bytes,
+                file_name=f"Prior_Auth_Decision_Report_{req_id}.pdf",
+                mime="application/pdf",
+                key=f"dl_rep_hdr_{req_id}",
+                type="primary",
+                use_container_width=True
+            )
+        except Exception as e:
+            logger.warning(f"Could not render top report download button: {e}")
 
     st.markdown(f"""
     <div class="case-header-card">
@@ -1218,6 +1240,19 @@ def render_case_view(case_data, on_back_callback=None, on_resubmit_callback=None
             {f"<div style='margin-top:6px;font-size:12px;color:var(--red-700);'><strong>Failed:</strong><ul style='margin:4px 0 0 18px;padding:0;'>{fail_html}</ul></div>" if failed else ""}
         </div>
         """, unsafe_allow_html=True)
+
+        try:
+            report_pdf_bytes = generate_report(case_data)
+            st.download_button(
+                label="📑 Download Official Decision Report (PDF)",
+                data=report_pdf_bytes,
+                file_name=f"Prior_Auth_Decision_Report_{req_id}.pdf",
+                mime="application/pdf",
+                key=f"dl_rep_banner_{req_id}",
+                use_container_width=True
+            )
+        except Exception as e:
+            logger.warning(f"Could not render banner report download button: {e}")
 
         # ── MANUAL REVIEW WORKFLOW SECTION ─────────────────────────
         if final_dec in ("MANUAL REVIEW", "MANUAL_REVIEW"):

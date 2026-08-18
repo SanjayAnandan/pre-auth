@@ -33,6 +33,7 @@ from src.database import (
     check_database_status,
     save_patient,
     create_authorization_request,
+    create_authorization_request_record,
     save_decision,
     save_decision_criteria,
     update_authorization_request_status,
@@ -40,6 +41,9 @@ from src.database import (
     update_authorization_request_details,
     get_recent_requests,
     get_decision_criteria,
+    save_document_metadata,
+    save_identity_verification,
+    save_clinical_facts,
 )
 from src.ui import (
     apply_custom_styles,
@@ -103,20 +107,24 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
     Transforms a Supabase authorization request record into the unified
     'One Authorization = One Case' data structure.
     """
+    if not isinstance(record, dict):
+        record = {}
+
     req_id = record.get("id")
     p_data = record.get("patients") or {}
     decisions_list = record.get("decisions") or []
 
     # 1. Decision details — pick the latest decision (most recent created_at)
-    if decisions_list and len(decisions_list) > 0:
+    valid_decisions = [d for d in decisions_list if isinstance(d, dict)]
+    if valid_decisions:
         sorted_decisions = sorted(
-            decisions_list,
+            valid_decisions,
             key=lambda d: str(d.get("created_at") or ""),
             reverse=True
         )
         dec_obj = sorted_decisions[0]
         dec_id = dec_obj.get("id")
-        final_decision = dec_obj.get("final_decision", record.get("request_status", "UNKNOWN"))
+        final_decision = str(dec_obj.get("final_decision") or record.get("request_status") or "PENDING").upper()
         policy_id = dec_obj.get("policy_id") or "POL-001"
         policy_name = dec_obj.get("policy_name") or "Medical Coverage Policy"
         failed_criteria = dec_obj.get("failed_criteria") or []
@@ -124,7 +132,7 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
         reason = dec_obj.get("reason", "")
     else:
         dec_id = None
-        final_decision = record.get("request_status", "PENDING")
+        final_decision = str(record.get("request_status") or "PENDING").upper()
         policy_id = "POL-001"
         policy_name = "Medical Coverage Policy"
         failed_criteria = []
@@ -135,7 +143,7 @@ def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
     criteria_list = []
     if dec_id:
         try:
-            criteria_list = get_decision_criteria(dec_id)
+            criteria_list = get_decision_criteria(dec_id) or []
         except Exception as e:
             logger.warning(f"Failed to fetch criteria for decision {dec_id}: {e}")
 
@@ -197,8 +205,8 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
             st.error("Please select at least one PDF document to upload.")
             return
 
-        orig_patient = case_data.get("patient") or {}
-        merged_patient = dict(orig_patient)
+        db_request_id = case_data.get("audit", {}).get("request_id") or case_data.get("request", {}).get("id")
+        db_patient_id = case_data.get("audit", {}).get("patient_db_id") or case_data.get("patient", {}).get("id")
 
         with st.spinner("Processing additional clinical information..."):
             for pdf_file in pdf_list:
@@ -209,6 +217,13 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
 
                 supp_patient = parse_patient(supp_text)
                 merged_patient = merge_patient_data(merged_patient, supp_patient)
+
+                if db_request_id and hasattr(pdf_file, 'name'):
+                    try:
+                        supp_bytes = pdf_file.getvalue() if hasattr(pdf_file, 'getvalue') else None
+                        save_document_metadata(db_request_id, "Supplemental Evidence", pdf_file.name, "VERIFIED", pdf_bytes=supp_bytes)
+                    except Exception as doc_err:
+                        logger.warning(f"Could not persist supplemental document metadata: {doc_err}")
 
         with st.spinner("Re-evaluating policy criteria..."):
             merged_patient = normalize_patient(merged_patient)
@@ -225,9 +240,6 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
             else:
                 eval_result = process_decision(merged_patient, policies, no_pa_codes)
 
-            db_request_id = case_data.get("audit", {}).get("request_id") or case_data.get("request", {}).get("id")
-            db_patient_id = case_data.get("audit", {}).get("patient_db_id") or case_data.get("patient", {}).get("id")
-
             new_decision_id = None
             criteria_to_save = eval_result.get("results") or eval_result.get("criteria") or []
             new_status = eval_result.get("decision", "MANUAL REVIEW")
@@ -241,6 +253,7 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
             if db_request_id and isinstance(db_request_id, str):
                 try:
                     update_authorization_request_details(db_request_id, merged_patient, status="EVALUATING")
+                    save_clinical_facts(db_request_id, merged_patient, model_name="Groq LLM")
                     new_decision_id = save_decision(db_request_id, eval_result)
                     if new_decision_id:
                         save_decision_criteria(new_decision_id, criteria_to_save)
@@ -481,14 +494,25 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
 
         db_patient_id = None
         db_request_id = None
+        db_request_created_at = None
         with st.spinner("Step 3/5 Storing verified PII data in Supabase & securing privacy boundary..."):
             try:
                 db_patient_id = save_patient(initial_pii_patient)
-                db_request_id = create_authorization_request(
+                req_rec = create_authorization_request_record(
                     db_patient_id,
                     initial_pii_patient,
                     status="PROCESSING"
                 )
+                db_request_id = req_rec.get("id")
+                db_request_created_at = req_rec.get("created_at")
+
+                if db_request_id:
+                    hist_status = "VERIFIED" if verification.get("verified") else "MISMATCH"
+                    pa_status = "VERIFIED" if verification.get("verified") else "MISMATCH"
+                    save_document_metadata(db_request_id, "Patient History", primary_file.name, hist_status, pdf_bytes=pdf_bytes)
+                    if len(pdf_files) > 1:
+                        save_document_metadata(db_request_id, "PA Request Form", pdf_files[1].name, pa_status)
+                    save_identity_verification(db_request_id, verification)
             except Exception as db_err:
                 logger.warning(f"Database PII pre-persistence skipped: {db_err}")
 
@@ -539,6 +563,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                 try:
                     update_patient_clinical_data(db_patient_id, patient)
                     update_authorization_request_details(db_request_id, patient, status="EVALUATING")
+                    save_clinical_facts(db_request_id, patient, model_name="Groq LLM")
                 except Exception as update_err:
                     logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
@@ -562,18 +587,19 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                     logger.warning(f"Failed to persist final decision: {dec_err}")
 
         # Package into Unified Case Object and display immediately
+        req_created_at = db_request_created_at or datetime.utcnow().isoformat()
         case_obj = {
             "patient": patient,
             "verification": verification,
             "request": {
-                "id": db_request_id or "REQ-NEW",
+                "id": db_request_id,
                 "requested_service": patient.get("requested_service"),
                 "cpt_hcpcs_code": patient.get("cpt_hcpcs_code"),
                 "quantity": patient.get("quantity", "1"),
                 "frequency": patient.get("frequency", "Single"),
                 "payer": patient.get("payer"),
                 "status": result.get("decision", "PENDING"),
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": req_created_at,
             },
             "decision": {
                 "id": db_decision_id,
@@ -594,7 +620,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                 "patient_db_id": db_patient_id,
                 "request_id": db_request_id,
                 "decision_id": db_decision_id,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": req_created_at,
             }
         }
 

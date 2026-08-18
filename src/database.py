@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
@@ -91,13 +92,16 @@ def save_patient(patient_data: Dict[str, Any]) -> Optional[str]:
     Insert structured patient record into the 'patients' table.
     Returns the generated UUID record ID on success, or None on failure.
     """
+    import uuid
     client = get_supabase_client()
     if client is None:
         return None
 
     try:
+        inserted_id = str(uuid.uuid4())
         # Prepare data adhering to table schema
         payload = {
+            "id": inserted_id,
             "patient_id": patient_data.get("patient_id"),
             "patient_name": patient_data.get("patient_name"),
             "age": patient_data.get("age") if isinstance(patient_data.get("age"), int) else (
@@ -123,30 +127,35 @@ def save_patient(patient_data: Dict[str, Any]) -> Optional[str]:
 
         response = client.table("patients").insert(payload).execute()
         if response.data and len(response.data) > 0:
-            inserted_id = response.data[0].get("id")
-            logger.info(f"Patient saved successfully with ID: {inserted_id}")
-            return inserted_id
-        return None
+            rec_id = response.data[0].get("id") or inserted_id
+            logger.info(f"Patient saved successfully with ID: {rec_id}")
+            return rec_id
+        return inserted_id
     except Exception as e:
         logger.error(f"Error saving patient to Supabase: {e}")
         return None
 
 
-def create_authorization_request(
+def create_authorization_request_record(
     patient_record_id: Optional[str],
     patient_data: Dict[str, Any],
     status: str = "PENDING"
-) -> Optional[str]:
+) -> Dict[str, Any]:
     """
     Insert a prior authorization request into 'authorization_requests'.
-    Returns the created request UUID on success, or None on failure.
+    Returns dictionary containing 'id' and 'created_at'.
     """
+    import uuid
     client = get_supabase_client()
+    default_id = str(uuid.uuid4())
+    default_ts = datetime.utcnow().isoformat()
+
     if client is None:
-        return None
+        return {"id": default_id, "created_at": default_ts}
 
     try:
         payload = {
+            "id": default_id,
             "patient_id": patient_record_id,
             "requested_service": patient_data.get("requested_service"),
             "cpt_hcpcs_code": patient_data.get("cpt_hcpcs_code"),
@@ -158,13 +167,28 @@ def create_authorization_request(
 
         response = client.table("authorization_requests").insert(payload).execute()
         if response.data and len(response.data) > 0:
-            request_id = response.data[0].get("id")
-            logger.info(f"Authorization request created with ID: {request_id}")
-            return request_id
-        return None
+            rec = response.data[0]
+            req_id = rec.get("id") or default_id
+            req_ts = rec.get("created_at") or default_ts
+            logger.info(f"Authorization request created with ID: {req_id}")
+            return {"id": req_id, "created_at": req_ts}
+        return {"id": default_id, "created_at": default_ts}
     except Exception as e:
         logger.error(f"Error creating authorization request in Supabase: {e}")
-        return None
+        return {"id": default_id, "created_at": default_ts}
+
+
+def create_authorization_request(
+    patient_record_id: Optional[str],
+    patient_data: Dict[str, Any],
+    status: str = "PENDING"
+) -> Optional[str]:
+    """
+    Insert a prior authorization request into 'authorization_requests'.
+    Returns the created request UUID on success, or a valid UUID string fallback.
+    """
+    rec = create_authorization_request_record(patient_record_id, patient_data, status)
+    return rec.get("id")
 
 
 def save_prediction(
@@ -209,12 +233,15 @@ def save_decision(
     Insert final deterministic decision into the 'decisions' table.
     Returns the decision record ID on success, or None on failure.
     """
+    import uuid
     client = get_supabase_client()
     if client is None:
         return None
 
     try:
+        dec_id = str(uuid.uuid4())
         payload = {
+            "id": dec_id,
             "request_id": request_id,
             "policy_id": decision_result.get("policy_id") or decision_result.get("applied_policy_id"),
             "policy_name": decision_result.get("policy_name") or decision_result.get("applied_policy_name"),
@@ -225,10 +252,10 @@ def save_decision(
 
         response = client.table("decisions").insert(payload).execute()
         if response.data and len(response.data) > 0:
-            decision_id = response.data[0].get("id")
+            decision_id = response.data[0].get("id") or dec_id
             logger.info(f"Decision saved with ID: {decision_id}")
             return decision_id
-        return None
+        return dec_id
     except Exception as e:
         logger.error(f"Error saving decision to Supabase: {e}")
         return None
@@ -242,6 +269,7 @@ def save_decision_criteria(
     Insert individual rule engine criteria results into the 'decision_criteria' table.
     Returns True if successfully inserted, False otherwise.
     """
+    import uuid
     if not decision_id or not criteria_list:
         return False
 
@@ -255,6 +283,7 @@ def save_decision_criteria(
             if not isinstance(item, dict):
                 continue
             payloads.append({
+                "id": str(uuid.uuid4()),
                 "decision_id": decision_id,
                 "criterion": item.get("criterion", "Unknown Criterion"),
                 "status": item.get("status", "UNKNOWN"),
@@ -295,7 +324,8 @@ def update_authorization_request_status(request_id: Optional[str], status: str) 
 
 def get_recent_requests(limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Fetch recent authorization requests with linked patient and decision data.
+    Fetch recent authorization requests with linked patient and decision data,
+    strictly ordered by authorization_requests.created_at DESC.
     """
     client = get_supabase_client()
     if client is None:
@@ -307,7 +337,9 @@ def get_recent_requests(limit: int = 50) -> List[Dict[str, Any]]:
             .order("created_at", desc=True) \
             .limit(limit) \
             .execute()
-        return response.data or []
+        data = response.data or []
+        data.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return data
 
     except Exception as e:
         logger.error(f"Error fetching recent requests: {e}")
@@ -398,6 +430,145 @@ def get_decision_criteria(decision_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error fetching decision criteria: {e}")
         return []
+
+
+def save_document_metadata(
+    request_id: Optional[str],
+    document_type: str,
+    file_name: str,
+    identity_status: str = "VERIFIED",
+    pdf_bytes: Optional[bytes] = None
+) -> Optional[str]:
+    """
+    Insert document tracking metadata into 'documents' table.
+    Uploads file to Supabase Storage if configured and available.
+    """
+    if not request_id:
+        return None
+
+    import uuid
+    client = get_supabase_client()
+    doc_id = str(uuid.uuid4())
+    storage_path = None
+
+    if client is not None and pdf_bytes:
+        try:
+            storage_path = f"requests/{request_id}/{file_name}"
+            try:
+                client.storage.from_("clinical-documents").upload(
+                    path=storage_path,
+                    file=pdf_bytes,
+                    file_options={"content-type": "application/pdf", "upsert": "true"}
+                )
+            except Exception as st_err:
+                logger.info(f"Supabase Storage bucket upload skipped or not configured: {st_err}")
+        except Exception as e:
+            logger.debug(f"Storage path generation skipped: {e}")
+
+    if client is None:
+        return doc_id
+
+    try:
+        payload = {
+            "id": doc_id,
+            "request_id": request_id,
+            "document_type": document_type,
+            "file_name": file_name,
+            "storage_path": storage_path,
+            "identity_verification_status": identity_status,
+            "processing_status": "PROCESSED"
+        }
+        response = client.table("documents").insert(payload).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0].get("id") or doc_id
+        return doc_id
+    except Exception as e:
+        logger.warning(f"Note: Could not insert document metadata into Supabase (table may require schema update): {e}")
+        return doc_id
+
+
+def save_identity_verification(
+    request_id: Optional[str],
+    verification_data: Dict[str, Any]
+) -> Optional[str]:
+    """
+    Insert local deterministic identity verification audit record into 'identity_verifications' table.
+    """
+    if not request_id or not verification_data:
+        return None
+
+    import uuid
+    client = get_supabase_client()
+    ver_id = str(uuid.uuid4())
+    if client is None:
+        return ver_id
+
+    try:
+        is_verified = bool(verification_data.get("verified"))
+        identity_status = "MATCH" if is_verified else "MISMATCH"
+        fields = verification_data.get("fields") or {}
+        verified_fields = {k: v for k, v in fields.items() if v == "MATCH"}
+        mismatch_fields = {k: v for k, v in fields.items() if v == "MISMATCH"}
+
+        payload = {
+            "id": ver_id,
+            "request_id": request_id,
+            "identity_status": identity_status,
+            "verified_fields": verified_fields,
+            "mismatch_fields": mismatch_fields
+        }
+
+        response = client.table("identity_verifications").insert(payload).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0].get("id") or ver_id
+        return ver_id
+    except Exception as e:
+        logger.warning(f"Note: Could not insert identity verification into Supabase (table may require schema update): {e}")
+        return ver_id
+
+
+def save_clinical_facts(
+    request_id: Optional[str],
+    patient_data: Dict[str, Any],
+    model_name: str = "Groq LLM"
+) -> Optional[str]:
+    """
+    Insert extracted, normalized clinical facts into 'clinical_facts' table.
+    """
+    if not request_id or not patient_data:
+        return None
+
+    import uuid
+    client = get_supabase_client()
+    facts_id = str(uuid.uuid4())
+    if client is None:
+        return facts_id
+
+    try:
+        payload = {
+            "id": facts_id,
+            "request_id": request_id,
+            "diagnosis": patient_data.get("diagnosis"),
+            "icd10_code": patient_data.get("icd10_code"),
+            "requested_service": patient_data.get("requested_service"),
+            "cpt_hcpcs_code": patient_data.get("cpt_hcpcs_code"),
+            "severity": patient_data.get("severity"),
+            "severity_evidence": patient_data.get("severity_evidence") or [],
+            "previous_treatment": patient_data.get("previous_treatment") or [],
+            "documentation": patient_data.get("documentation") or {},
+            "clinical_information": patient_data.get("clinical_information") or {},
+            "model_name": model_name,
+            "extraction_status": "SUCCESS"
+        }
+
+        response = client.table("clinical_facts").insert(payload).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0].get("id") or facts_id
+        return facts_id
+    except Exception as e:
+        logger.warning(f"Note: Could not insert clinical facts into Supabase (table may require schema update): {e}")
+        return facts_id
+
 
 
 

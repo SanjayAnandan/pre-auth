@@ -96,7 +96,7 @@ def generate_report(case_data: Dict[str, Any]) -> bytes:
     from an existing authorization case record.
 
     :param case_data: Unified case dictionary containing patient, verification, request,
-                      decision, prediction, criteria, and audit data.
+                      decision, criteria, and audit data.
     :return: PDF file bytes.
     """
     buffer = io.BytesIO()

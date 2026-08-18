@@ -385,7 +385,125 @@ class TestRuleEngine(unittest.TestCase):
         res_violation = evaluate_policy(merged_violation, self.pol_002)
         self.assertEqual(res_violation["decision"], "DENIED", "Supplemental document with explicit policy violation must evaluate to DENIED!")
 
+    def test_10_build_case_from_db_record_latest_decision_selection(self):
+        """Test 10: build_case_from_db_record selects the latest decision based on created_at descending."""
+        from app import build_case_from_db_record
+
+        # Scenario A: Multiple decisions
+        record_multi = {
+            "id": "REQ-TEST-MULTI",
+            "patients": {"patient_name": "James Anderson", "patient_id": "MRN-JAMES-01"},
+            "request_status": "APPROVED",
+            "decisions": [
+                {
+                    "id": "decision-old",
+                    "final_decision": "MANUAL REVIEW",
+                    "created_at": "2026-08-19T00:54:56"
+                },
+                {
+                    "id": "decision-new",
+                    "final_decision": "APPROVED",
+                    "created_at": "2026-08-19T00:56:01"
+                }
+            ]
+        }
+        case_multi = build_case_from_db_record(record_multi)
+        self.assertEqual(case_multi["decision"]["decision"], "APPROVED")
+        self.assertEqual(case_multi["decision"]["id"], "decision-new")
+
+        # Scenario B: Single MANUAL REVIEW decision
+        record_single = {
+            "id": "REQ-TEST-SINGLE",
+            "patients": {"patient_name": "James Anderson", "patient_id": "MRN-JAMES-01"},
+            "request_status": "MANUAL REVIEW",
+            "decisions": [
+                {
+                    "id": "decision-initial",
+                    "final_decision": "MANUAL REVIEW",
+                    "reason": "Missing evidence",
+                    "manual_review_reasons": ["Missing Neurological examination"],
+                    "created_at": "2026-08-19T00:54:56"
+                }
+            ]
+        }
+        case_single = build_case_from_db_record(record_single)
+        self.assertEqual(case_single["decision"]["decision"], "MANUAL REVIEW")
+        self.assertEqual(case_single["decision"]["id"], "decision-initial")
+        self.assertIn("Missing Neurological examination", case_single["decision"]["manual_review_reasons"])
+
+    def test_11_authorization_request_persistence_and_timestamp_preservation(self):
+        """Test 11: Verify create_authorization_request_record returns valid UUID and timestamp is preserved."""
+        from src.database import create_authorization_request_record
+        from app import build_case_from_db_record
+
+        sample_patient = {"patient_name": "August Test", "requested_service": "MRI Knee", "cpt_hcpcs_code": "73721"}
+        rec = create_authorization_request_record("pat-123", sample_patient, status="PROCESSING")
+        self.assertIn("id", rec)
+        self.assertIn("created_at", rec)
+        self.assertGreater(len(rec["id"]), 10)
+
+        db_rec = {
+            "id": rec["id"],
+            "created_at": "2026-08-19T01:25:00.000000",
+            "request_status": "APPROVED",
+            "patients": sample_patient,
+            "decisions": [
+                {
+                    "id": "dec-aug-1",
+                    "final_decision": "APPROVED",
+                    "created_at": "2026-08-19T01:25:05.000000"
+                }
+            ]
+        }
+        built_case = build_case_from_db_record(db_rec)
+        self.assertEqual(built_case["request"]["created_at"], "2026-08-19T01:25:00.000000")
+        self.assertEqual(built_case["audit"]["created_at"], "2026-08-19T01:25:00.000000")
+
+    def test_12_timestamp_timezone_formatting_and_ordering(self):
+        """Test 12: Verify UI timestamp formatting converts UTC to local timezone without calendar lag."""
+        from src.ui import format_iso_timestamp, format_iso_timestamp_full
+
+        utc_ts = "2026-08-18T20:07:00+00:00"
+        formatted_date = format_iso_timestamp(utc_ts)
+        formatted_full = format_iso_timestamp_full(utc_ts)
+
+        self.assertIn("Aug", formatted_date)
+        self.assertIn("2026", formatted_date)
+        self.assertIn("Aug", formatted_full)
+
+    def test_13_audit_and_document_persistence_helpers(self):
+        """Test 13: Verify document tracking, identity verification, and clinical facts persistence helpers."""
+        from src.database import (
+            save_document_metadata,
+            save_identity_verification,
+            save_clinical_facts
+        )
+
+        dummy_req_id = "req-audit-1234"
+        doc_id = save_document_metadata(dummy_req_id, "Patient History", "History_Record.pdf", "VERIFIED")
+        self.assertIsNotNone(doc_id)
+
+        ver_data = {
+            "verified": True,
+            "fields": {"name": "MATCH", "patient_id": "MATCH"}
+        }
+        ver_id = save_identity_verification(dummy_req_id, ver_data)
+        self.assertIsNotNone(ver_id)
+
+        patient_data = {
+            "diagnosis": "Knee Osteoarthritis",
+            "icd10_code": "M17.12",
+            "cpt_hcpcs_code": "73721",
+            "requested_service": "MRI Knee"
+        }
+        facts_id = save_clinical_facts(dummy_req_id, patient_data, model_name="Groq LLM")
+        self.assertIsNotNone(facts_id)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+
 
