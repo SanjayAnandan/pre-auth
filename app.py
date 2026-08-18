@@ -208,6 +208,9 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
         db_request_id = case_data.get("audit", {}).get("request_id") or case_data.get("request", {}).get("id")
         db_patient_id = case_data.get("audit", {}).get("patient_db_id") or case_data.get("patient", {}).get("id")
 
+        existing_patient = case_data.get("patient") or {}
+        merged_patient = dict(existing_patient)
+
         with st.spinner("Processing additional clinical information..."):
             for pdf_file in pdf_list:
                 supp_text = extract_text_from_pdf(pdf_file)

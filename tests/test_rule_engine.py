@@ -499,9 +499,79 @@ class TestRuleEngine(unittest.TestCase):
         facts_id = save_clinical_facts(dummy_req_id, patient_data, model_name="Groq LLM")
         self.assertIsNotNone(facts_id)
 
+    def test_14_global_search_matching_logic(self):
+        """Test 14: Verify global search matches patient name, MRN, CPT, service, request number, and status."""
+        from src.ui import _matches_search
+
+        sample_request = {
+            "id": "req-search-uuid-9999",
+            "request_number": "PA-000099",
+            "requested_service": "MRI Lumbar Spine",
+            "cpt_hcpcs_code": "72148",
+            "request_status": "DENIED",
+            "patients": {
+                "patient_name": "Robert Wilson",
+                "patient_number": "PAT-000088",
+                "patient_id": "MRN-ROBERT-789"
+            }
+        }
+
+        self.assertTrue(_matches_search(sample_request, "Robert"))
+        self.assertTrue(_matches_search(sample_request, "robert wilson"))
+        self.assertTrue(_matches_search(sample_request, "PAT-000088"))
+        self.assertTrue(_matches_search(sample_request, "MRN-ROBERT"))
+        self.assertTrue(_matches_search(sample_request, "PA-000099"))
+        self.assertTrue(_matches_search(sample_request, "72148"))
+        self.assertTrue(_matches_search(sample_request, "lumbar spine"))
+        self.assertTrue(_matches_search(sample_request, "denied"))
+        self.assertFalse(_matches_search(sample_request, "NonexistentPatient123"))
+
+    def test_15_resubmission_variable_scoping_and_identity_preservation(self):
+        """Test 15: Verify resubmission flow merges clinical evidence into existing patient data without losing identity."""
+        case_data = {
+            "resubmitted": False,
+            "patient": {
+                "patient_id": "MRN-JAMES-01",
+                "patient_name": "James Anderson",
+                "age": 50,
+                "gender": "male",
+                "cpt_hcpcs_code": "72148"
+            },
+            "request": {
+                "id": "req-uuid-james-100",
+                "status": "MANUAL REVIEW"
+            },
+            "audit": {
+                "request_id": "req-uuid-james-100",
+                "patient_db_id": "pat-uuid-james-100"
+            },
+            "decision": {
+                "policy_id": "POL-002"
+            }
+        }
+
+        existing_patient = case_data.get("patient") or {}
+        merged_patient = dict(existing_patient)
+
+        supp_patient = {
+            "documentation": {
+                "Neurological examination": True,
+                "Lumbar Spine X-ray": True
+            }
+        }
+
+        merged_patient = merge_patient_data(merged_patient, supp_patient)
+
+        self.assertEqual(merged_patient.get("patient_name"), "James Anderson")
+        self.assertEqual(merged_patient.get("patient_id"), "MRN-JAMES-01")
+        self.assertTrue(merged_patient.get("documentation", {}).get("Neurological examination"))
+        self.assertEqual(case_data.get("audit", {}).get("request_id"), "req-uuid-james-100")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
 
 
 

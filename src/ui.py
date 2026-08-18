@@ -44,14 +44,14 @@ _CSS = """
   --slate-800: #1e293b;
   --slate-900: #0f172a;
 
-  --teal-50: #f0fdfa;
-  --teal-100: #ccfbf1;
-  --teal-200: #99f6e4;
-  --teal-500: #14b8a6;
-  --teal-600: #0d9488;
-  --teal-700: #0f766e;
-  --teal-800: #115e59;
-  --teal-900: #134e4a;
+  --blue-50: #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+  --blue-900: #1e3a8a;
 
   --green-50: #f0fdf4;
   --green-100: #dcfce7;
@@ -71,12 +71,6 @@ _CSS = """
   --amber-600: #d97706;
   --amber-700: #b45309;
 
-  --blue-50: #eff6ff;
-  --blue-100: #dbeafe;
-  --blue-500: #3b82f6;
-  --blue-600: #2563eb;
-  --blue-700: #1d4ed8;
-
   --purple-50: #faf5ff;
   --purple-100: #f3e8ff;
   --purple-600: #9333ea;
@@ -85,10 +79,10 @@ _CSS = """
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
-  --shadow-xs: 0 1px 2px 0 rgba(0,0,0,.03);
-  --shadow-sm: 0 1px 3px 0 rgba(0,0,0,.06), 0 1px 2px -1px rgba(0,0,0,.06);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,.07), 0 2px 4px -2px rgba(0,0,0,.07);
-  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08);
+  --shadow-xs: 0 1px 2px 0 rgba(15,23,42,.04);
+  --shadow-sm: 0 1px 3px 0 rgba(15,23,42,.06), 0 1px 2px -1px rgba(15,23,42,.06);
+  --shadow-md: 0 4px 6px -1px rgba(15,23,42,.08), 0 2px 4px -2px rgba(15,23,42,.06);
+  --shadow-lg: 0 10px 15px -3px rgba(15,23,42,.09), 0 4px 6px -4px rgba(15,23,42,.05);
 }
 
 /* ─── Global Base ────────────────────────────────── */
@@ -124,7 +118,6 @@ h1,h2,h3,h4,h5,h6 {
   font-size: 13px !important;
   color: var(--slate-600) !important;
 }
-/* Hide Streamlit's expand/collapse sidebar button */
 button[data-testid="stSidebarCollapseButton"] { display:none !important; }
 
 /* ─── Buttons ────────────────────────────────────── */
@@ -132,7 +125,7 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   border-radius: var(--radius-sm) !important;
   font-weight: 600 !important;
   font-size: 13px !important;
-  padding: 7px 16px !important;
+  padding: 8px 16px !important;
   border: 1px solid var(--slate-300) !important;
   background: var(--white) !important;
   color: var(--slate-700) !important;
@@ -141,19 +134,19 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   line-height: 1.4 !important;
 }
 .stButton > button:hover {
-  border-color: var(--teal-600) !important;
-  color: var(--teal-700) !important;
-  background: var(--teal-50) !important;
+  border-color: var(--blue-500) !important;
+  color: var(--blue-700) !important;
+  background: var(--blue-50) !important;
 }
 .stButton > button[kind="primary"] {
-  background: var(--teal-700) !important;
+  background: var(--blue-600) !important;
   color: var(--white) !important;
-  border-color: var(--teal-700) !important;
-  box-shadow: 0 2px 4px rgba(15,118,110,.2) !important;
+  border-color: var(--blue-600) !important;
+  box-shadow: 0 2px 4px rgba(37,99,235,.2) !important;
 }
 .stButton > button[kind="primary"]:hover {
-  background: var(--teal-800) !important;
-  border-color: var(--teal-800) !important;
+  background: var(--blue-700) !important;
+  border-color: var(--blue-700) !important;
 }
 
 /* ─── Sidebar Nav Buttons ────────────────────────── */
@@ -178,15 +171,15 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   border-left-color: var(--slate-400) !important;
 }
 [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-  background: var(--teal-50) !important;
-  color: var(--teal-700) !important;
+  background: var(--blue-50) !important;
+  color: var(--blue-700) !important;
   font-weight: 600 !important;
-  border-left: 3px solid var(--teal-600) !important;
+  border-left: 3px solid var(--blue-600) !important;
   box-shadow: none !important;
 }
 [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-  background: var(--teal-100) !important;
-  color: var(--teal-800) !important;
+  background: var(--blue-100) !important;
+  color: var(--blue-800) !important;
 }
 
 /* ─── File Uploader ──────────────────────────────── */
@@ -197,7 +190,8 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   padding: 24px !important;
 }
 [data-testid="stFileUploader"]:hover {
-  border-color: var(--teal-500) !important;
+  border-color: var(--blue-500) !important;
+  background: var(--blue-50) !important;
 }
 [data-testid="stFileUploader"] section { background: transparent !important; }
 
@@ -221,7 +215,7 @@ li[data-baseweb="menu-item"] {
   color: var(--slate-800) !important; font-size: 13px !important; font-weight: 500 !important; padding: 8px 14px !important;
 }
 li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="true"] {
-  background: var(--teal-50) !important; color: var(--teal-700) !important;
+  background: var(--blue-50) !important; color: var(--blue-700) !important;
 }
 
 /* ─── Expanders ──────────────────────────────────── */
@@ -273,7 +267,7 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 }
 .user-avatar {
   width: 30px; height: 30px; border-radius: 50%;
-  background: var(--teal-700); color: var(--white);
+  background: var(--blue-600); color: var(--white);
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700;
 }
@@ -285,10 +279,10 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 }
 .sidebar-logo {
   width: 34px; height: 34px; border-radius: var(--radius-md);
-  background: var(--teal-700); color: var(--white);
+  background: var(--blue-600); color: var(--white);
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 700;
-  box-shadow: 0 2px 4px rgba(15,118,110,.25);
+  box-shadow: 0 2px 4px rgba(37,99,235,.25);
 }
 .sidebar-brand-text h2 { font-size: 16px !important; font-weight: 800 !important; margin: 0 !important; letter-spacing: .01em !important; color: var(--slate-900) !important; }
 .sidebar-brand-text span { font-size: 10px; color: var(--slate-500); font-weight: 500; letter-spacing: .02em; }
@@ -304,10 +298,10 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 }
 .sidebar-nav-item:hover { background: var(--slate-50); color: var(--slate-900); }
 .sidebar-nav-item.active {
-  background: var(--teal-50); color: var(--teal-700); font-weight: 600;
-  border-left: 3px solid var(--teal-600);
+  background: var(--blue-50); color: var(--blue-700); font-weight: 600;
+  border-left: 3px solid var(--blue-600);
 }
-.sidebar-nav-item.active svg, .sidebar-nav-item.active .nav-icon { color: var(--teal-600); }
+.sidebar-nav-item.active svg, .sidebar-nav-item.active .nav-icon { color: var(--blue-600); }
 .nav-icon { width: 18px; text-align: center; font-size: 15px; }
 .sidebar-status-card {
   margin: 12px 12px; padding: 12px 14px; border-radius: var(--radius-md);
@@ -329,13 +323,13 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
   box-shadow: var(--shadow-sm); display: flex; align-items: flex-start; gap: 14px;
 }
 .metric-icon-circle {
-  width: 40px; height: 40px; border-radius: 10px;
+  width: 42px; height: 42px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; flex-shrink: 0;
 }
 .metric-body { flex: 1; }
-.metric-label { font-size: 12px; font-weight: 500; color: var(--slate-500); margin-bottom: 2px; }
-.metric-value { font-size: 24px; font-weight: 700; color: var(--slate-900); line-height: 1.2; }
+.metric-label { font-size: 12px; font-weight: 600; color: var(--slate-500); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 2px; }
+.metric-value { font-size: 26px; font-weight: 800; color: var(--slate-900); line-height: 1.2; }
 .metric-sub { font-size: 11px; color: var(--slate-500); margin-top: 2px; }
 
 /* Page header */
@@ -380,7 +374,7 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 }
 .policy-doc-icon {
   width: 32px; height: 32px; border-radius: var(--radius-sm);
-  background: var(--teal-50); color: var(--teal-700);
+  background: var(--blue-50); color: var(--blue-700);
   display: flex; align-items: center; justify-content: center;
   font-size: 15px; flex-shrink: 0;
 }
@@ -400,10 +394,10 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 .policy-date { font-size: 12px; color: var(--slate-500); white-space: nowrap; }
 .policy-view-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 12px; font-weight: 600; color: var(--teal-700);
+  font-size: 12px; font-weight: 600; color: var(--blue-700);
   background: none; border: none; cursor: pointer; padding: 4px 0;
 }
-.policy-view-btn:hover { color: var(--teal-800); text-decoration: underline; }
+.policy-view-btn:hover { color: var(--blue-800); text-decoration: underline; }
 
 /* Pagination */
 .pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; font-size: 13px; color: var(--slate-500); }
@@ -414,8 +408,8 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
   font-size: 13px; font-weight: 500; background: var(--white); color: var(--slate-700);
   cursor: pointer; transition: all .1s;
 }
-.page-btn:hover { border-color: var(--teal-500); color: var(--teal-700); }
-.page-btn.active { background: var(--teal-700); color: var(--white); border-color: var(--teal-700); }
+.page-btn:hover { border-color: var(--blue-500); color: var(--blue-700); }
+.page-btn.active { background: var(--blue-600); color: var(--white); border-color: var(--blue-600); }
 
 /* Status badges (decisions) */
 .status-badge {
@@ -453,15 +447,6 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
   border-bottom: 1px solid var(--slate-100); padding-bottom: 6px;
 }
 
-/* AI prediction */
-.ai-prediction-panel { background: var(--white); border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 16px; }
-.ai-disclaimer { font-size: 11px; color: var(--slate-500); background: var(--slate-50); border-left: 3px solid var(--slate-400); padding: 6px 10px; border-radius: 0 4px 4px 0; margin-bottom: 14px; }
-.prob-bar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; font-size: 12px; }
-.prob-bar-label { width: 95px; font-weight: 600; color: var(--slate-700); }
-.prob-bar-track { flex: 1; height: 10px; background: var(--slate-100); border-radius: 5px; overflow: hidden; border: 1px solid var(--slate-200); }
-.prob-bar-fill { height: 100%; border-radius: 5px; }
-.prob-bar-pct { width: 48px; text-align: right; font-weight: 700; font-family: 'IBM Plex Mono', monospace; color: var(--slate-800); font-size: 12px; }
-
 /* Criterion cards */
 .criterion-card { background: var(--white); border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 8px; border-left: 4px solid var(--slate-300); }
 .criterion-card-passed { border-left-color: var(--green-600) !important; }
@@ -473,17 +458,17 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
 .criterion-reason { font-size: 12px; color: var(--slate-600); padding-left: 20px; }
 
 /* Decision banners */
-.decision-banner { border-radius: var(--radius-md); padding: 18px 20px; margin-bottom: 18px; }
-.decision-banner-approved { background: var(--green-50); border: 1px solid var(--green-100); }
-.decision-banner-denied { background: var(--red-50); border: 1px solid var(--red-100); }
-.decision-banner-review { background: var(--amber-50); border: 1px solid var(--amber-100); }
-.decision-banner-no-pa { background: var(--blue-50); border: 1px solid var(--blue-100); }
+.decision-banner { border-radius: var(--radius-md); padding: 18px 20px; margin-bottom: 18px; border-left: 4px solid transparent; }
+.decision-banner-approved { background: var(--green-50); border: 1px solid var(--green-100); border-left-color: var(--green-600); }
+.decision-banner-denied { background: var(--red-50); border: 1px solid var(--red-100); border-left-color: var(--red-600); }
+.decision-banner-review { background: var(--amber-50); border: 1px solid var(--amber-100); border-left-color: var(--amber-600); }
+.decision-banner-no-pa { background: var(--blue-50); border: 1px solid var(--blue-100); border-left-color: var(--blue-600); }
 
 /* Audit timeline */
 .audit-timeline { position: relative; padding-left: 24px; margin-top: 14px; border-left: 2px solid var(--slate-200); }
 .timeline-step { position: relative; margin-bottom: 16px; }
 .timeline-step:last-child { margin-bottom: 0; }
-.timeline-dot { position: absolute; left: -31px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--teal-600); border: 2px solid var(--white); box-shadow: 0 0 0 2px var(--slate-300); }
+.timeline-dot { position: absolute; left: -31px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--blue-600); border: 2px solid var(--white); box-shadow: 0 0 0 2px var(--slate-300); }
 .timeline-content { font-size: 12px; }
 .timeline-title { font-weight: 600; color: var(--slate-800); margin-bottom: 2px; }
 .timeline-time { font-size: 11px; color: var(--slate-500); font-family: 'IBM Plex Mono', monospace; }
@@ -494,7 +479,7 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
   border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 10px;
   box-shadow: var(--shadow-xs); transition: all .12s ease;
 }
-.request-row-card:hover { border-color: var(--slate-300); box-shadow: var(--shadow-md); }
+.request-row-card:hover { border-color: var(--blue-500); box-shadow: var(--shadow-md); }
 
 /* Empty state */
 .empty-state-box {
@@ -645,28 +630,50 @@ def render_sidebar_nav(db_status: Dict[str, Any] = None) -> str:
 # 4. TOP HEADER BAR
 # ============================================================
 
+# ============================================================
+# 4. TOP HEADER BAR
+# ============================================================
+
 def render_top_header(db_status: Dict[str, Any]):
     is_connected = db_status.get("status") == "connected"
     db_html = '<span class="db-live-pill">● PostgreSQL Live</span>' if is_connected else '<span class="db-offline-pill">○ Offline</span>'
 
-    st.markdown(f"""
-    <div class="top-bar">
-        <div class="top-bar-left">
-            <span style="font-size:18px;color:var(--slate-400);cursor:pointer;">☰</span>
-            <div class="top-search">
-                <span style="color:var(--slate-400);">🔍</span>
-                <span>Search patients, requests, policies...</span>
-            </div>
-        </div>
-        <div class="top-bar-right">
+    if "sidebar_collapsed" not in st.session_state:
+        st.session_state["sidebar_collapsed"] = False
+
+    if st.session_state["sidebar_collapsed"]:
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] { display: none !important; }
+        .main .block-container { padding-left: 2rem !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+    col_btn, col_srch, col_right = st.columns([0.4, 4.5, 3.1])
+
+    with col_btn:
+        if st.button("☰", key="top_menu_toggle", help="Toggle Sidebar Navigation"):
+            st.session_state["sidebar_collapsed"] = not st.session_state.get("sidebar_collapsed", False)
+            st.rerun()
+
+    with col_srch:
+        st.text_input(
+            "Global Search",
+            placeholder="Search patients, requests, policies...",
+            key="global_search_input",
+            label_visibility="collapsed"
+        )
+
+    with col_right:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:16px;height:38px;">
             {db_html}
             <div class="user-chip">
                 <span>Clinical Reviewer</span>
                 <div class="user-avatar">CR</div>
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -674,7 +681,6 @@ def render_top_header(db_status: Dict[str, Any]):
 # ============================================================
 
 def render_dashboard_view(requests, on_select_case_callback=None):
-    # Page header
     st.markdown("""
     <div class="page-header">
         <div class="page-header-left">
@@ -693,7 +699,7 @@ def render_dashboard_view(requests, on_select_case_callback=None):
     st.markdown(f"""
     <div class="metrics-row">
         <div class="metric-card">
-            <div class="metric-icon-circle" style="background:var(--slate-100);color:var(--slate-700);">📋</div>
+            <div class="metric-icon-circle" style="background:var(--blue-50);color:var(--blue-600);">📋</div>
             <div class="metric-body">
                 <div class="metric-label">Total Requests</div>
                 <div class="metric-value">{total}</div>
@@ -727,17 +733,35 @@ def render_dashboard_view(requests, on_select_case_callback=None):
     </div>
     """, unsafe_allow_html=True)
 
-    # Search
-    search = st.text_input("Search", placeholder="Search by patient, MRN, CPT code...", label_visibility="collapsed", key="dash_srch")
+    global_q = st.session_state.get("global_search_input", "").strip()
+    dash_q = st.text_input("Search", value=global_q, placeholder="Search by patient, MRN, CPT code...", label_visibility="collapsed", key="dash_srch").strip()
+    active_search = dash_q or global_q
+
+    if active_search:
+        col_lbl, col_clr = st.columns([4, 1])
+        with col_lbl:
+            st.markdown(f'<div style="font-size:13px;font-weight:600;color:var(--slate-700);margin:8px 0 12px 0;">Search results for "<strong>{active_search}</strong>"</div>', unsafe_allow_html=True)
+        with col_clr:
+            if st.button("✕ Clear Search", key="clear_dash_srch"):
+                st.session_state["global_search_input"] = ""
+                st.session_state["dash_srch"] = ""
+                st.rerun()
 
     if not requests:
         render_empty_state()
         return
 
-    st.markdown(f'<h3 style="font-size:15px;font-weight:700;margin:16px 0 12px 0;">Recent Requests ({len(requests)})</h3>', unsafe_allow_html=True)
-    for idx, r in enumerate(requests[:10]):
-        if search and not _matches_search(r, search):
-            continue
+    matching_requests = [r for r in requests if _matches_search(r, active_search)]
+
+    if not matching_requests:
+        render_empty_state(
+            "No matching patients, requests, or policies found.",
+            "Try searching with a different patient name, MRN, CPT code, or request number."
+        )
+        return
+
+    st.markdown(f'<h3 style="font-size:15px;font-weight:700;margin:16px 0 12px 0;">Recent Requests ({len(matching_requests)})</h3>', unsafe_allow_html=True)
+    for idx, r in enumerate(matching_requests[:10]):
         _render_request_row(r, idx, on_select_case_callback)
 
 
@@ -759,16 +783,39 @@ def render_all_requests_view(requests, on_select_case_callback=None):
         render_empty_state()
         return
 
+    global_q = st.session_state.get("global_search_input", "").strip()
     col_s, col_f = st.columns([3, 1])
     with col_s:
-        search = st.text_input("Search", placeholder="Search by patient, MRN, CPT...", label_visibility="collapsed", key="allreq_srch")
+        all_q = st.text_input("Search", value=global_q, placeholder="Search by patient, MRN, CPT...", label_visibility="collapsed", key="allreq_srch").strip()
     with col_f:
         filt = st.selectbox("Status", ["All","APPROVED","DENIED","MANUAL REVIEW"], label_visibility="collapsed", key="allreq_filt")
 
-    for idx, r in enumerate(requests):
+    active_search = all_q or global_q
+    if active_search:
+        col_lbl, col_clr = st.columns([4, 1])
+        with col_lbl:
+            st.markdown(f'<div style="font-size:13px;font-weight:600;color:var(--slate-700);margin:8px 0 12px 0;">Search results for "<strong>{active_search}</strong>"</div>', unsafe_allow_html=True)
+        with col_clr:
+            if st.button("✕ Clear Search", key="clear_allreq_srch"):
+                st.session_state["global_search_input"] = ""
+                st.session_state["allreq_srch"] = ""
+                st.rerun()
+
+    matching_requests = []
+    for r in requests:
         d = _get_decision(r)
-        if search and not _matches_search(r, search): continue
+        if active_search and not _matches_search(r, active_search): continue
         if filt != "All" and filt.replace(" ","_") not in d.replace(" ","_"): continue
+        matching_requests.append(r)
+
+    if not matching_requests:
+        render_empty_state(
+            "No matching patients, requests, or policies found.",
+            "Try searching with a different patient name, MRN, CPT code, or request number."
+        )
+        return
+
+    for idx, r in enumerate(matching_requests):
         _render_request_row(r, idx, on_select_case_callback)
 
 
@@ -865,10 +912,10 @@ def render_policies_view(policies_data):
     </div>
     """, unsafe_allow_html=True)
 
-    # Search & filter toolbar
+    global_q = st.session_state.get("global_search_input", "").strip()
     col_ps, col_pf1, col_pf2, col_pf3, col_pf4 = st.columns([2.5, 1, 1, 1, 1])
     with col_ps:
-        psearch = st.text_input("Pol Search", placeholder="Search policies by ID, name, or keyword...", label_visibility="collapsed", key="pol_search")
+        psearch = st.text_input("Pol Search", value=global_q, placeholder="Search policies by ID, name, or keyword...", label_visibility="collapsed", key="pol_search").strip()
     with col_pf1:
         payer_filter = st.selectbox("Payer", ["All Payers","Commercial","Medicare"], label_visibility="collapsed", key="pol_payer")
     with col_pf2:
@@ -878,6 +925,18 @@ def render_policies_view(policies_data):
     with col_pf4:
         st.selectbox("Sort", ["Newest","Oldest","Name A-Z"], label_visibility="collapsed", key="pol_sort")
 
+    active_search = psearch or global_q
+
+    if active_search:
+        col_lbl, col_clr = st.columns([4, 1])
+        with col_lbl:
+            st.markdown(f'<div style="font-size:13px;font-weight:600;color:var(--slate-700);margin:8px 0 12px 0;">Policy search results for "<strong>{active_search}</strong>"</div>', unsafe_allow_html=True)
+        with col_clr:
+            if st.button("✕ Clear Search", key="clear_pol_srch"):
+                st.session_state["global_search_input"] = ""
+                st.session_state["pol_search"] = ""
+                st.rerun()
+
     if not policies_data:
         render_empty_state("No policies configured", "Add medical coverage policies to data/policies.json.")
         return
@@ -886,14 +945,23 @@ def render_policies_view(policies_data):
     filtered = []
     for p in policies_data:
         pyr = str(p.get("payer","")).lower()
-        pid = p.get("policy_id","").lower()
-        pname = p.get("policy_name","").lower()
-        if psearch:
-            q = psearch.lower()
-            if q not in pid and q not in pname and q not in pyr: continue
+        pid = str(p.get("policy_id","")).lower()
+        pname = str(p.get("policy_name","")).lower()
+        sname = str(p.get("service_name","")).lower()
+        cpt_str = " ".join(p.get("cpt_hcpcs_codes", [])).lower()
+        icd_str = " ".join(p.get("icd10_codes", [])).lower()
+
+        if active_search:
+            q = active_search.lower()
+            if q not in pid and q not in pname and q not in pyr and q not in sname and q not in cpt_str and q not in icd_str:
+                continue
         if payer_filter == "Commercial" and ("medicare" in pyr or "cms" in pyr): continue
         if payer_filter == "Medicare" and "medicare" not in pyr and "cms" not in pyr: continue
         filtered.append(p)
+
+    if not filtered:
+        render_empty_state("No matching policies found", "Try searching with a different policy ID, name, or service keyword.")
+        return
 
     # Pagination
     page_size = 6
@@ -1377,9 +1445,9 @@ def _render_timeline(case_data):
 
     if resubmitted:
         steps.extend([
-            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">📂 Additional Information Submitted</div><div class="timeline-time">Supplemental Document Received (Existing Request Re-evaluation)</div></div></div>',
-            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Re-evaluated</div><div class="timeline-time">Existing Request Policy Criteria Re-evaluation</div></div></div>',
-            f'<div class="timeline-step"><div class="timeline-dot" style="background:var(--teal-600);"></div><div class="timeline-content"><div class="timeline-title">🎯 Updated Decision Recorded</div><div class="timeline-time">Updated Decision: {did[:12]}...</div></div></div>'
+            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">📂 Additional Information Submitted</div><div class="timeline-time">Supplemental Document Received (Existing Request Re-evaluation)</div></div></div>',
+            '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Re-evaluated</div><div class="timeline-time">Existing Request Policy Criteria Re-evaluation</div></div></div>',
+            f'<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">🎯 Updated Decision Recorded</div><div class="timeline-time">Updated Decision: {did[:12]}...</div></div></div>'
         ])
 
     steps_body = "\n".join(steps)
@@ -1463,13 +1531,25 @@ def _get_decision(r):
     return str(r.get("request_status") or "PENDING").upper()
 
 def _matches_search(r, q):
-    q = q.lower().strip()
+    if not q:
+        return True
+    q = str(q).lower().strip()
+    if not q:
+        return True
     p = r.get("patients") or {}
-    return any(q in str(v).lower() for v in [
-        p.get("patient_name",""), p.get("patient_id",""),
-        r.get("cpt_hcpcs_code",""), r.get("requested_service",""),
+    searchable_values = [
+        p.get("patient_name", ""),
+        p.get("patient_number", ""),
+        p.get("patient_id", ""),
+        r.get("request_number", ""),
+        r.get("id", ""),
+        r.get("cpt_hcpcs_code", ""),
+        r.get("requested_service", ""),
+        r.get("payer", ""),
+        p.get("payer", ""),
         _get_decision(r)
-    ])
+    ]
+    return any(q in str(v).lower() for v in searchable_values if v is not None)
 
 
 # ============================================================
@@ -1492,9 +1572,9 @@ def render_intake_stage_tracker(current_stage: int = 1):
     html_steps = []
     for idx, (num, label) in enumerate(stages, 1):
         if idx < current_stage:
-            css = "background: var(--teal-600); color: white; border-color: var(--teal-600);"
+            css = "background: var(--green-600); color: white; border-color: var(--green-600);"
             icon = "✓"
-            text_style = "color: var(--teal-800); font-weight: 600;"
+            text_style = "color: var(--green-700); font-weight: 600;"
         elif idx == current_stage:
             css = "background: var(--blue-600); color: white; border-color: var(--blue-600);"
             icon = num
@@ -1517,58 +1597,82 @@ def render_verification_status(verification: Dict[str, Any]):
     field match breakdown badges, age discrepancy warnings, and PII protection banner.
     """
     is_verified = verification.get("verified", False)
-    status = verification.get("status", "UNKNOWN")
+    status = str(verification.get("status", "UNKNOWN")).upper()
     score = verification.get("score", 0)
     fields = verification.get("fields", {})
     discrepancies = verification.get("discrepancies", [])
     age_warnings = verification.get("age_warnings", [])
     calc_age = verification.get("calculated_age")
 
-    if is_verified:
-        st.markdown(f'''<div style="background: var(--teal-50); border: 1px solid var(--teal-200); border-radius: var(--radius-lg); padding: 18px 22px; margin: 16px 0;">
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    hist_id = verification.get("history_identity") or {}
+    pa_id = verification.get("pa_identity") or {}
+    hist_name = hist_id.get("patient_name") or "Document 1"
+    pa_name = pa_id.get("patient_name") or "Document 2"
+
+    if status in ("INSUFFICIENT_DATA", "INSUFFICIENT"):
+        st.markdown(f'''<div style="background: var(--amber-50); border: 1.5px solid var(--amber-500); border-radius: var(--radius-lg); padding: 18px 22px; margin: 16px 0;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 <div style="display: flex; align-items: center; gap: 10px;">
-<div style="background: var(--teal-600); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;">✓</div>
+<div style="background: var(--amber-600); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;">⚠</div>
 <div>
-<div style="font-size: 16px; font-weight: 700; color: var(--teal-900);">PATIENT VERIFIED</div>
-<div style="font-size: 12px; color: var(--teal-700);">Patient identity matched deterministically across History PDF &amp; PA Form PDF</div>
+<div style="font-size: 16px; font-weight: 700; color: var(--amber-800);">INSUFFICIENT IDENTITY INFORMATION</div>
+<div style="font-size: 12px; color: var(--slate-700);">Complete identity fields were not available for cross-document matching</div>
 </div>
-</div>
-<div style="background: var(--teal-100); color: var(--teal-800); font-weight: 700; font-size: 14px; padding: 6px 14px; border-radius: 20px;">
-Match Score: {score}%
 </div>
 </div>
 </div>''', unsafe_allow_html=True)
+
+    elif is_verified:
+        st.markdown(f'''<div style="background: var(--green-50); border: 1.5px solid var(--green-600); border-radius: var(--radius-lg); padding: 18px 22px; margin: 16px 0;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<div style="background: var(--green-600); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700;">✓</div>
+<div>
+<div style="font-size: 16px; font-weight: 800; color: var(--green-700); letter-spacing: .01em;">✓ IDENTITY VERIFIED</div>
+<div style="font-size: 12px; color: var(--slate-700);">Patient identity matched deterministically across Patient History &amp; PA Request Form</div>
+</div>
+</div>
+<div style="background: var(--green-100); color: var(--green-700); font-weight: 700; font-size: 13px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--green-100);">
+✓ MATCH ({score}%)
+</div>
+</div>
+<div style="display: flex; gap: 24px; font-size: 12px; color: var(--slate-700); background: white; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--green-100);">
+<div><span style="font-weight: 600; color: var(--slate-500); font-size: 11px; text-transform: uppercase;">Patient History:</span> <strong>{hist_name}</strong></div>
+<div><span style="font-weight: 600; color: var(--slate-500); font-size: 11px; text-transform: uppercase;">PA Request:</span> <strong>{pa_name}</strong></div>
+</div>
+</div>''', unsafe_allow_html=True)
+
     else:
         diff_items = "".join([f"<li>{d}</li>" for d in discrepancies])
-        st.markdown(f'''<div style="background: var(--red-50); border: 1.5px solid var(--red-500); border-radius: var(--radius-lg); padding: 20px 24px; margin: 16px 0;">
+        st.markdown(f'''<div style="background: var(--red-50); border: 1.5px solid var(--red-600); border-radius: var(--radius-lg); padding: 20px 24px; margin: 16px 0;">
 <div style="display: flex; align-items: flex-start; gap: 12px;">
-<div style="font-size: 24px;">🛑</div>
+<div style="font-size: 24px;">✕</div>
 <div style="flex: 1;">
-<div style="font-size: 18px; font-weight: 800; color: var(--red-700); margin-bottom: 6px;">Document Verification Failed</div>
+<div style="font-size: 18px; font-weight: 800; color: var(--red-700); margin-bottom: 6px;">✕ IDENTITY VERIFICATION FAILED</div>
 <div style="font-size: 14px; color: var(--slate-800); margin-bottom: 10px;">The patient information in the submitted documents does not match. Differences detected:</div>
 <ul style="color: var(--red-700); font-size: 13px; font-weight: 600; margin: 0 0 12px 0; padding-left: 20px;">{diff_items}</ul>
-<div style="background: white; border: 1px solid var(--red-200); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--red-700);">🚫 Authorization evaluation has been stopped.</div>
+<div style="background: white; border: 1px solid var(--red-100); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--red-700);">🚫 MISMATCH — Authorization evaluation has been stopped.</div>
 </div>
 </div>
 </div>''', unsafe_allow_html=True)
 
     # Field Badges Grid
-    cols = st.columns(len(fields) if fields else 1)
-    for col, (f_name, f_status) in zip(cols, fields.items()):
-        label = f_name.replace('_', ' ').title()
-        if f_status == "MATCH":
-            badge_css = "background: var(--teal-100); color: var(--teal-800); border: 1px solid var(--teal-200);"
-            icon = "✓ MATCH"
-        elif f_status == "MISMATCH":
-            badge_css = "background: var(--red-100); color: var(--red-800); border: 1px solid var(--red-200);"
-            icon = "✗ MISMATCH"
-        else:
-            badge_css = "background: var(--slate-100); color: var(--slate-600); border: 1px solid var(--slate-200);"
-            icon = "N/A"
+    if fields:
+        cols = st.columns(len(fields))
+        for col, (f_name, f_status) in zip(cols, fields.items()):
+            label = f_name.replace('_', ' ').title()
+            if f_status == "MATCH":
+                badge_css = "background: var(--green-50); color: var(--green-700); border: 1px solid var(--green-100);"
+                icon = "✓ MATCH"
+            elif f_status == "MISMATCH":
+                badge_css = "background: var(--red-50); color: var(--red-700); border: 1px solid var(--red-100);"
+                icon = "✕ MISMATCH"
+            else:
+                badge_css = "background: var(--amber-50); color: var(--amber-700); border: 1px solid var(--amber-100);"
+                icon = "⚠ N/A"
 
-        with col:
-            st.markdown(f'''<div style="background: white; border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 10px; text-align: center;">
+            with col:
+                st.markdown(f'''<div style="background: white; border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 10px; text-align: center;">
 <div style="font-size: 11px; color: var(--slate-500); text-transform: uppercase; font-weight: 600;">{label}</div>
 <div style="font-size: 12px; font-weight: 700; margin-top: 4px; padding: 2px 6px; border-radius: 4px; display: inline-block; {badge_css}">{icon}</div>
 </div>''', unsafe_allow_html=True)
@@ -1576,12 +1680,12 @@ Match Score: {score}%
     # Age Warnings
     if age_warnings:
         warn_html = "".join([f"<div>⚠️ {w}</div>" for w in age_warnings])
-        st.markdown(f'''<div style="background: var(--amber-50); border: 1px solid var(--amber-200); border-radius: var(--radius-md); padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--amber-800); font-weight: 600;">{warn_html}</div>''', unsafe_allow_html=True)
+        st.markdown(f'''<div style="background: var(--amber-50); border: 1px solid var(--amber-100); border-radius: var(--radius-md); padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--amber-700); font-weight: 600;">{warn_html}</div>''', unsafe_allow_html=True)
 
     # PII Protection Banner (if verified)
     if is_verified:
         age_str = f"Calculated Age: {calc_age}" if calc_age is not None else "Age derived"
-        st.markdown(f'''<div style="background: #f8fafc; border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 14px 18px; margin-top: 14px;">
+        st.markdown(f'''<div style="background: var(--slate-50); border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 14px 18px; margin-top: 14px;">
 <div style="font-size: 13px; font-weight: 700; color: var(--slate-800); margin-bottom: 6px;">🔒 Privacy Boundary &amp; De-identification Active</div>
 <div style="display: flex; gap: 16px; font-size: 12px; color: var(--slate-600); flex-wrap: wrap;">
 <span>✓ PII Identified &amp; Separated</span>

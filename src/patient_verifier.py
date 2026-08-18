@@ -23,6 +23,75 @@ logger = logging.getLogger(__name__)
 # NORMALIZATION FUNCTIONS
 # ============================================================
 
+HEADING_METADATA_PATTERNS = [
+    r'\bunstructured\s+narrative\b',
+    r'\bphysician\s+clinical\s+narrative\b',
+    r'\bsynthetic\s+patient\s+clinical\s+record\b',
+    r'\bsynthetic\s+health\s+plan\s+[a-z0-9]+\b',
+    r'\bprior\s+authorization\s+request\b',
+    r'\bpatient\s+background\b',
+    r'\bpatient\s+history\b',
+    r'\brequest\s+narrative\b',
+    r'\bclinical\s+narrative\b',
+    r'\bdocument\s+status\b',
+    r'\bprovider\s+request\b',
+    r'\bmedical\s+record\b',
+    r'\bcase\s+report\b',
+    r'\bclinical\s+summary\b',
+    r'\bpatient\s+record\b',
+    r'\bunstructured\b',
+    r'\bnarrative\b',
+    r'\bbackground\b',
+    r'\bhistory\b',
+    r'\brecord\b',
+    r'\bsummary\b',
+    r'\brequest\b',
+]
+
+def clean_extracted_name(val: Optional[str]) -> Optional[str]:
+    """
+    Clean and validate extracted candidate patient name.
+    Strips document headings, section titles, and narrative metadata artifacts.
+    """
+    if not val:
+        return None
+    cleaned = str(val).strip()
+
+    # Strip leading/trailing non-word punctuation
+    cleaned = re.sub(r'^[^\w]+|[^\w]+$', '', cleaned).strip()
+
+    # Iteratively remove known heading metadata terms from start of candidate name
+    changed = True
+    while changed:
+        changed = False
+        for pat in HEADING_METADATA_PATTERNS:
+            m = re.match(r'^(?:' + pat + r')\s+(.+)$', cleaned, re.IGNORECASE)
+            if m:
+                cleaned = m.group(1).strip()
+                changed = True
+
+    # Remove trailing heading metadata terms if present
+    for pat in HEADING_METADATA_PATTERNS:
+        cleaned = re.sub(r'\s+' + pat + r'$', '', cleaned, flags=re.IGNORECASE).strip()
+
+    # Reject if candidate is empty or too short
+    if not cleaned or len(cleaned) < 2:
+        return None
+
+    # Disallow common placeholder words
+    invalid_words = {'patient', 'name', 'n/a', 'none', 'null', 'unknown', 'the', 'member', 'background', 'narrative', 'history', 'request', 'patient name'}
+    if cleaned.lower() in invalid_words:
+        return None
+
+    # Filter out non-name tokens
+    words = [w for w in cleaned.split() if w.lower() not in invalid_words]
+    valid_words = [w for w in words if re.match(r'^[A-Za-z\.\,\'-]+$', w)]
+    if len(valid_words) < 1:
+        return None
+
+    return " ".join(valid_words)
+
+
 def normalize_name(name: Optional[str]) -> Optional[str]:
     """
     Normalize patient name:
@@ -199,25 +268,28 @@ def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
             val = m.group(1).strip().split('\n')[0].strip()
             val = re.split(r'\b(?:DOB|Date|Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address):', val, flags=re.IGNORECASE)[0].strip()
             val = re.sub(r'[\,\.\:\;\#]', '', val).strip()
-            if val and len(val.split()) >= 1 and val.lower() not in ('n/a', 'none', 'null', 'unknown', 'patient', 'name'):
-                name = val
+            cleaned = clean_extracted_name(val)
+            if cleaned:
+                name = cleaned
                 break
 
     # Narrative patterns if structured search returned no valid name
     if not name:
         narrative_name_patterns = [
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:is|was)\s+a\s+(?:\d{1,3}[\-\s]*year[\-\s]*old\s+)?(?:Female|Male|female|male)',
-            r'(?:The\s+patient,?\s+|\bPatient\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),?\s+(?:is|was|\d{1,3}[\-\s]*year)',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),\s+born\s+on',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+\((?:DOB|MRN|Age|Gender)',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s+(?:is|was)\s+a\s+(?:\d{1,3}[\-\s]*year[\-\s]*old\s+)?(?:Female|Male|female|male)',
+            r'(?:for|member|patient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
+            r'(?:The\s+patient,?\s+|\bPatient,?\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+(?:is|was|\d{1,3}[\-\s]*year|a\s+)',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),\s+born\s+on',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s+\((?:DOB|MRN|Age|Gender)',
         ]
         for pat in narrative_name_patterns:
             m = re.search(pat, text)
             if m:
                 val = m.group(1).strip()
-                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown', 'patient', 'the patient'):
-                    name = val
+                cleaned = clean_extracted_name(val)
+                if cleaned:
+                    name = cleaned
                     break
 
     # 2. Date of birth

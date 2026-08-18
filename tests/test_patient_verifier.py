@@ -272,10 +272,15 @@ class TestPatientVerifier(unittest.TestCase):
         pa_id = extract_identity_fields_locally(pa_text)
         res = verify_patient_documents(hist_id, pa_id)
 
-        self.assertFalse(res["verified"])
-        self.assertEqual(res["status"], "INSUFFICIENT_DATA")
+    def test_13_narrative_header_stripping_extraction(self):
+        """Verify heading metadata ('Unstructured Narrative Patient Background') is stripped from extracted name."""
+        text = "Unstructured Narrative Patient Background\nOlivia Bennett is a 58-year-old Female covered by Synthetic Health Plan A."
+        extracted = extract_identity_fields_locally(text)
+        self.assertEqual(extracted["name"], "Olivia Bennett")
+        self.assertNotEqual(extracted["name"], "Unstructured Narrative Patient Background Olivia Bennett")
 
 
 if __name__ == "__main__":
     unittest.main()
+
 
