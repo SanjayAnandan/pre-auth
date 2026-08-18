@@ -1030,9 +1030,28 @@ def render_case_view(case_data, on_back_callback=None):
     dt = format_iso_timestamp_full(request_info.get("created_at") or audit_info.get("created_at"))
     badge = get_status_badge_html(final_dec)
 
-    if st.button("← Back to Requests", key="btn_back"):
-        if on_back_callback: on_back_callback()
-        st.rerun()
+    col_nav_1, col_nav_2 = st.columns([1.5, 1])
+    with col_nav_1:
+        if st.button("← Back to Requests", key="btn_back"):
+            if on_back_callback: on_back_callback()
+            st.rerun()
+    with col_nav_2:
+        try:
+            import re
+            from src.pdf_report import generate_report
+            top_pdf_bytes = generate_report(case_data)
+            clean_top_id = re.sub(r'[^A-Za-z0-9\-\_]', '', str(req_id)) if req_id else ""
+            top_filename = f"PriorAuth_{clean_top_id}.pdf" if clean_top_id and clean_top_id not in ("REQ001", "UNKNOWN", "REQNEW", "N/A") else "PriorAuth_Report.pdf"
+            st.download_button(
+                label="📄 Download Authorization Report",
+                data=top_pdf_bytes,
+                file_name=top_filename,
+                mime="application/pdf",
+                type="primary",
+                key=f"top_btn_dl_report_{req_id}"
+            )
+        except Exception as top_pdf_err:
+            pass
 
     st.markdown(f"""
     <div class="case-header-card">
@@ -1207,6 +1226,7 @@ def render_case_view(case_data, on_back_callback=None):
         if final_dec == "APPROVED": bc, ic, dc, hd = "decision-banner-approved","✓","var(--green-700)","All coverage criteria met."
         elif final_dec == "DENIED": bc, ic, dc, hd = "decision-banner-denied","✕","var(--red-700)", reason or "Criteria not satisfied."
         elif final_dec in ("MANUAL REVIEW","MANUAL_REVIEW"): bc, ic, dc, hd = "decision-banner-review","⚠","var(--amber-700)", reason or "Clinician review required."
+        elif final_dec == "DOCUMENT VERIFICATION FAILED": bc, ic, dc, hd = "decision-banner-denied","✕","var(--red-700)", "Document identity verification failed."
         else: bc, ic, dc, hd = "decision-banner-no-pa","ℹ","var(--blue-700)","Prior auth not required."
 
         fail_html = "".join([f"<li>{f}</li>" for f in failed]) if failed else ""
@@ -1218,6 +1238,29 @@ def render_case_view(case_data, on_back_callback=None):
             {f"<div style='margin-top:6px;font-size:12px;color:var(--red-700);'><strong>Failed:</strong><ul style='margin:4px 0 0 18px;padding:0;'>{fail_html}</ul></div>" if failed else ""}
         </div>
         """, unsafe_allow_html=True)
+
+        # ── PDF REPORT GENERATION & DOWNLOAD BUTTON ──
+        try:
+            import re
+            from src.pdf_report import generate_report
+            report_pdf_bytes = generate_report(case_data)
+            clean_id_str = re.sub(r'[^A-Za-z0-9\-\_]', '', str(req_id)) if req_id else ""
+            if clean_id_str and clean_id_str not in ("REQ001", "UNKNOWN", "REQNEW", "N/A"):
+                report_dl_filename = f"PriorAuth_{clean_id_str}.pdf"
+            else:
+                report_dl_filename = "PriorAuth_Report.pdf"
+
+            st.download_button(
+                label="📄 Download Authorization Report",
+                data=report_pdf_bytes,
+                file_name=report_dl_filename,
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+                key=f"btn_dl_case_report_{req_id}"
+            )
+        except Exception as pdf_gen_err:
+            logger.warning(f"Could not generate PDF authorization report: {pdf_gen_err}")
 
         # AI Prediction
         st.markdown('<div class="case-section-title">🤖 AI Prediction</div>', unsafe_allow_html=True)

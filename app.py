@@ -369,6 +369,56 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         # ── CRITICAL GATE: Hard stop on mismatch ──
         if not verification.get("verified", False):
             st.error("Identity verification failed. Downstream AI processing and policy evaluation have been stopped for patient privacy and security.")
+            
+            mismatch_case = {
+                "patient": {
+                    "patient_name": patient_name,
+                    "patient_id": patient_id_val,
+                    "age": calc_age,
+                    "gender": gender_val,
+                    "payer": "N/A"
+                },
+                "verification": verification,
+                "request": {
+                    "id": db_request_id or "REQ-VERIFICATION-FAILED",
+                    "requested_service": "N/A",
+                    "cpt_hcpcs_code": "N/A",
+                    "payer": "N/A",
+                    "status": "DOCUMENT VERIFICATION FAILED",
+                    "created_at": datetime.utcnow().isoformat()
+                },
+                "decision": {
+                    "id": None,
+                    "policy_id": "N/A",
+                    "policy_name": "Identity Verification Check",
+                    "decision": "DOCUMENT VERIFICATION FAILED",
+                    "reason": "Identity verification between submitted Patient History and PA Request Form failed.",
+                    "failed_criteria": verification.get("discrepancies") or ["Document identity mismatch"],
+                    "manual_review_reasons": []
+                },
+                "criteria": [],
+                "prediction": {},
+                "pdf": {
+                    "filename": primary_file.name,
+                    "bytes": pdf_bytes,
+                    "size_str": f"{pdf_size_kb:.1f} KB"
+                },
+                "audit": {
+                    "patient_db_id": db_patient_id,
+                    "request_id": db_request_id,
+                    "decision_id": None,
+                    "created_at": datetime.utcnow().isoformat()
+                }
+            }
+
+            if db_request_id:
+                try:
+                    update_authorization_request_status(db_request_id, "DOCUMENT VERIFICATION FAILED")
+                except Exception as dec_err:
+                    logger.warning(f"Failed to update verification failed status in DB: {dec_err}")
+
+            st.session_state.active_case = mismatch_case
+            st.rerun()
             return
 
         # ── PRE-PERSIST VERIFIED PII TO SUPABASE BEFORE GROQ ──

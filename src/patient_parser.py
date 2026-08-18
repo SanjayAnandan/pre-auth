@@ -843,6 +843,102 @@ def clean_patient(
 # MAIN PARSER (IDEMPOTENT & CACHED)
 # ============================================================
 
+# ============================================================
+# DETERMINISTIC LOCAL REGEX FALLBACK PARSER
+# ============================================================
+
+# ============================================================
+# DETERMINISTIC LOCAL REGEX FALLBACK PARSER
+# ============================================================
+
+def parse_patient_local_fallback(text: str) -> Dict[str, Any]:
+    """
+    Local deterministic regex fallback parser when LLM API keys are unavailable or API calls fail.
+    Extracts basic patient demographics, diagnostic codes, CPT procedure codes, and clinical findings.
+    """
+    if not text:
+        return clean_patient({})
+
+    raw_text = text
+
+    def find_match(patterns, default=None):
+        for pat in patterns:
+            m = re.search(pat, raw_text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip()
+                # Clean multi-line or trailing field noise
+                val = val.split('\n')[0].strip()
+                val = re.sub(r'\s+(?:DOB|MRN|Age|Gender|Sex|ID|Patient|Date|Member)\b.*', '', val, flags=re.IGNORECASE).strip()
+                if val:
+                    return val
+        return default
+
+    patient_name = find_match([
+        r'(?:Patient\s*Name|Name|Full\s*Name):\s*([A-Za-z\s\.\,\-]+)',
+        r'Patient:\s*([A-Za-z\s\.\,\-]+)'
+    ])
+    patient_id = find_match([
+        r'(?:Patient\s*ID|MRN|Medical\s*Record\s*Number|Member\s*ID):\s*([A-Za-z0-9\-\_]+)',
+        r'ID:\s*([A-Za-z0-9\-\_]+)'
+    ])
+    gender = find_match([
+        r'(?:Gender|Sex):\s*([A-Za-z]+)'
+    ])
+    payer = find_match([
+        r'(?:Payer|Insurance|Carrier|Plan):\s*([A-Za-z0-9\s\.\-]+)'
+    ])
+    diagnosis = find_match([
+        r'(?:Diagnosis|Indication|Condition|Primary\s*Diagnosis):\s*([^\.\n]+)'
+    ])
+    icd10 = find_match([
+        r'(?:ICD\-?10|ICD10|ICD\s*Code):\s*([A-Z0-9\.]+)',
+        r'\b([A-Z]\d{2}(?:\.\d{1,4})?)\b'
+    ])
+    cpt = find_match([
+        r'(?:CPT|HCPCS|Procedure\s*Code|Code):\s*([A-Z0-9]{4,5})',
+        r'\b(CPT\s*#?\s*\d{5})\b',
+        r'\b(\d{5})\b'
+    ])
+    requested_service = find_match([
+        r'(?:Requested\s*Service|Procedure|Service|Requested\s*Procedure):\s*([^\.\n]+)'
+    ])
+    severity = find_match([
+        r'(?:Severity):\s*(Mild|Moderate|Severe|Critical)'
+    ])
+    provider_specialty = find_match([
+        r'(?:Specialty|Provider\s*Specialty):\s*([A-Za-z\s]+)'
+    ])
+    facility_type = find_match([
+        r'(?:Facility|Facility\s*Type):\s*([A-Za-z\s]+)'
+    ])
+
+    extracted = {
+        "patient_name": patient_name,
+        "patient_id": patient_id,
+        "gender": gender,
+        "payer": payer,
+        "diagnosis": diagnosis,
+        "icd10_code": icd10,
+        "cpt_hcpcs_code": cpt,
+        "requested_service": requested_service,
+        "severity": severity,
+        "provider_specialty": provider_specialty,
+        "facility_type": facility_type,
+        "documentation": {
+            "Clinical notes": "clinical note" in raw_text.lower() or "chart" in raw_text.lower(),
+            "Physical examination": "exam" in raw_text.lower() or "tenderness" in raw_text.lower(),
+            "Previous treatment history": "treatment" in raw_text.lower() or "therapy" in raw_text.lower(),
+            "Relevant X-ray report": "x-ray" in raw_text.lower() or "mri" in raw_text.lower() or "imaging" in raw_text.lower()
+        }
+    }
+
+    return clean_patient(extracted)
+
+
+# ============================================================
+# MAIN PARSER (IDEMPOTENT & CACHED)
+# ============================================================
+
 def parse_patient(
     text: str,
     api_key: Optional[str] = None,
@@ -851,72 +947,85 @@ def parse_patient(
     if not text or not text.strip():
         raise ValueError("Patient document text is empty.")
 
-    # 1. Compute SHA-256 document hash & check in-memory cache
+    openai_key = os.getenv("OPENAI_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY")
+
+    if not model or model == "openai/gpt-oss-120b":
+        if groq_key:
+            model = "openai/gpt-oss-120b"
+        elif openai_key:
+            model = "gpt-4o-mini"
+        else:
+            model = "openai/gpt-oss-120b"
+
     doc_hash = compute_document_hash(text)
     cache_key = (doc_hash, model, PROMPT_VERSION)
 
     if cache_key in _PATIENT_EXTRACTION_CACHE:
         logger.info(f"Patient extraction CACHE HIT for document hash {doc_hash[:12]}...")
-        cached_result = copy.deepcopy(_PATIENT_EXTRACTION_CACHE[cache_key])
-        return cached_result
+        return copy.deepcopy(_PATIENT_EXTRACTION_CACHE[cache_key])
 
-    # 2. Load API key from .env if not supplied
-    if not api_key:
-        api_key = os.getenv("GROQ_API_KEY")
+    raw_content = None
+    is_gpt_model = model.startswith("gpt-")
 
-    if not api_key:
-        raise ValueError("GROQ_API_KEY was not found. Check your .env file.")
+    # 1. Try OpenAI ChatGPT API if OPENAI_API_KEY is present or model is a ChatGPT model
+    if is_gpt_model and (openai_key or api_key):
+        try:
+            from openai import OpenAI
+            use_key = api_key or openai_key
+            client = OpenAI(api_key=use_key)
+            response = client.chat.completions.create(
+                model=model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": PATIENT_EXTRACTION_PROMPT},
+                    {"role": "user", "content": f"Extract the patient information from the following document:\n\n{text}"}
+                ]
+            )
+            raw_content = response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"OpenAI ChatGPT API call failed ({e}); checking Groq fallback...")
 
-    client = Groq(api_key=api_key)
+    # 2. Try Groq API if GROQ_API_KEY is present or as fallback
+    if not raw_content and (groq_key or api_key):
+        try:
+            from groq import Groq
+            use_key = api_key or groq_key
+            use_model = "openai/gpt-oss-120b" if is_gpt_model else model
+            client = Groq(api_key=use_key)
+            try:
+                response = client.chat.completions.create(
+                    model=use_model,
+                    temperature=0,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": PATIENT_EXTRACTION_PROMPT},
+                        {"role": "user", "content": f"Extract the patient information from the following document:\n\n{text}"}
+                    ]
+                )
+            except Exception:
+                response = client.chat.completions.create(
+                    model=use_model,
+                    temperature=0,
+                    messages=[
+                        {"role": "system", "content": PATIENT_EXTRACTION_PROMPT},
+                        {"role": "user", "content": f"Extract the patient information from the following document:\n\n{text}"}
+                    ]
+                )
+            raw_content = response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Groq API call failed ({e})...")
 
-    # 3. Call Groq API with temperature=0 and json_object response_format
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": PATIENT_EXTRACTION_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Extract the patient information "
-                        "from the following document:\n\n"
-                        + text
-                    )
-                }
-            ]
-        )
-    except Exception as e:
-        logger.warning(f"Groq response_format json_object failed ({e}); falling back to default completions...")
-        response = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            messages=[
-                {
-                    "role": "system",
-                    "content": PATIENT_EXTRACTION_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Extract the patient information "
-                        "from the following document:\n\n"
-                        + text
-                    )
-                }
-            ]
-        )
+    # 3. Fallback to Local Deterministic Regex Parser if LLM calls fail or keys missing
+    if raw_content:
+        extracted = _extract_json(raw_content)
+        patient = clean_patient(extracted)
+    else:
+        logger.info("No LLM response available; utilizing local deterministic regex parser fallback.")
+        patient = parse_patient_local_fallback(text)
 
-    raw_content = response.choices[0].message.content
-    extracted = _extract_json(raw_content)
-    patient = clean_patient(extracted)
     patient["_document_hash"] = doc_hash
-
-    # Store deepcopy in application-level in-memory cache
     _PATIENT_EXTRACTION_CACHE[cache_key] = copy.deepcopy(patient)
     return copy.deepcopy(patient)
 # ============================================================

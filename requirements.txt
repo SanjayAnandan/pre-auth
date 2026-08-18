@@ -4,4 +4,6 @@ supabase
 python-dotenv
 scikit-learn
 joblib
-groq
+groq
+reportlab
+openai

@@ -16,20 +16,32 @@ load_dotenv()
 
 
 # ============================================================
-# GROQ CLIENT
+# LLM CLIENT HELPER (OPENAI / GROQ)
 # ============================================================
 
-api_key = os.getenv("GROQ_API_KEY")
+def get_llm_client():
+    """
+    Returns (client, model_name, provider_name) for OpenAI ChatGPT or Groq API,
+    depending on available environment keys.
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY")
 
-if not api_key:
-    raise ValueError(
-        "GROQ_API_KEY was not found. "
-        "Add it to your .env file."
-    )
+    if openai_key:
+        try:
+            from openai import OpenAI
+            return OpenAI(api_key=openai_key), "gpt-4o-mini", "openai"
+        except Exception as e:
+            pass
 
-client = Groq(
-    api_key=api_key
-)
+    if groq_key:
+        try:
+            from groq import Groq
+            return Groq(api_key=groq_key), "llama-3.3-70b-versatile", "groq"
+        except Exception as e:
+            pass
+
+    return None, None, None
 
 
 # ============================================================
@@ -782,48 +794,55 @@ POLICY CANONICAL VOCABULARY
 
 
     # ========================================================
-    # GROQ CALL
+    # LLM CALL (OPENAI / GROQ) WITH FALLBACK
     # ========================================================
 
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You normalize medical authorization "
-                        "data without changing clinical facts. "
-                        "Return only valid JSON."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt + "\n\nRespond with a valid JSON object only."
+    client, model_name, provider_name = get_llm_client()
+    content = None
+
+    if client:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You normalize medical authorization "
+                            "data without changing clinical facts. "
+                            "Return only valid JSON."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt + "\n\nRespond with a valid JSON object only."
+                    }
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_object"
                 }
-            ],
-            temperature=0,
-            response_format={
-                "type": "json_object"
-            }
-        )
-        content = response.choices[0].message.content
-    except Exception:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You normalize medical authorization data. Return pure valid JSON only."
-                },
-                {
-                    "role": "user",
-                    "content": prompt + "\n\nReturn pure raw JSON only with no conversational text."
-                }
-            ],
-            temperature=0
-        )
-        content = response.choices[0].message.content
+            )
+            content = response.choices[0].message.content
+        except Exception:
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You normalize medical authorization data. Return pure valid JSON only."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt + "\n\nReturn pure raw JSON only with no conversational text."
+                        }
+                    ],
+                    temperature=0
+                )
+                content = response.choices[0].message.content
+            except Exception:
+                content = None
 
 
     if not content:
