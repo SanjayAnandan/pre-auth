@@ -93,12 +93,10 @@ _CSS = """
 /* ─── Global Base ────────────────────────────────── */
 .stApp {
   background-color: var(--slate-50) !important;
-  color: var(--slate-900) !important;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 .main .block-container {
   max-width: 100% !important;
-  padding: 0 2rem 3rem 2rem !important;
+  padding: 1rem 2rem 2rem 2rem !important;
 }
 header[data-testid="stHeader"] { display: none !important; }
 footer { display: none !important; }
@@ -110,11 +108,15 @@ h1,h2,h3,h4,h5,h6 {
 }
 
 /* ─── Sidebar – Premium Fixed Nav ────────────────── */
-[data-testid="stSidebar"] {
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div {
   background: var(--white) !important;
   border-right: 1px solid var(--slate-200) !important;
   width: 260px !important;
   padding: 0 !important;
+  transition: none !important;
+  animation: none !important;
+  transform: none !important;
 }
 [data-testid="stSidebar"] > div:first-child {
   padding: 0 !important;
@@ -123,11 +125,20 @@ h1,h2,h3,h4,h5,h6 {
   font-size: 13px !important;
   color: var(--slate-600) !important;
 }
-/* Hide Streamlit's expand/collapse sidebar button */
-button[data-testid="stSidebarCollapseButton"] { display:none !important; }
+/* Hide Streamlit's expand/collapse sidebar slider buttons */
+button[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebarHeader"],
+[data-testid="stSidebar"] [data-testid="stBaseButton-header"],
+[data-testid="stSidebar"] button[kind="header"],
+[data-testid="stSidebar"] button[aria-label*="sidebar" i],
+[data-testid="stSidebar"] button[aria-label*="collapse" i] {
+  display: none !important;
+}
 
 /* ─── Buttons ────────────────────────────────────── */
-.stButton > button {
+.stButton > button, .stDownloadButton > button, [data-testid="stDownloadButton"] > button {
   border-radius: var(--radius-sm) !important;
   font-weight: 600 !important;
   font-size: 13px !important;
@@ -139,18 +150,18 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   transition: all .15s ease !important;
   line-height: 1.4 !important;
 }
-.stButton > button:hover {
+.stButton > button:hover, .stDownloadButton > button:hover, [data-testid="stDownloadButton"] > button:hover {
   border-color: var(--teal-600) !important;
   color: var(--teal-700) !important;
   background: var(--teal-50) !important;
 }
-.stButton > button[kind="primary"] {
+.stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"], [data-testid="stDownloadButton"] > button[kind="primary"] {
   background: var(--teal-700) !important;
   color: var(--white) !important;
   border-color: var(--teal-700) !important;
   box-shadow: 0 2px 4px rgba(15,118,110,.2) !important;
 }
-.stButton > button[kind="primary"]:hover {
+.stButton > button[kind="primary"]:hover, .stDownloadButton > button[kind="primary"]:hover, [data-testid="stDownloadButton"] > button[kind="primary"]:hover {
   background: var(--teal-800) !important;
   border-color: var(--teal-800) !important;
 }
@@ -193,7 +204,7 @@ button[data-testid="stSidebarCollapseButton"] { display:none !important; }
   background: var(--white) !important;
   border: 2px dashed var(--slate-300) !important;
   border-radius: var(--radius-lg) !important;
-  padding: 24px !important;
+  padding: 16px !important;
 }
 [data-testid="stFileUploader"]:hover {
   border-color: var(--teal-500) !important;
@@ -637,11 +648,7 @@ def render_top_header(db_status: Dict[str, Any]):
     st.markdown(f"""
     <div class="top-bar">
         <div class="top-bar-left">
-            <span style="font-size:18px;color:var(--slate-400);cursor:pointer;">☰</span>
-            <div class="top-search">
-                <span style="color:var(--slate-400);">🔍</span>
-                <span>Search patients, requests, policies...</span>
-            </div>
+            <span style="font-size:14px;font-weight:700;color:var(--slate-700);letter-spacing:0.02em;">PREAUTH SYSTEM</span>
         </div>
         <div class="top-bar-right">
             {db_html}
@@ -1030,28 +1037,11 @@ def render_case_view(case_data, on_back_callback=None):
     dt = format_iso_timestamp_full(request_info.get("created_at") or audit_info.get("created_at"))
     badge = get_status_badge_html(final_dec)
 
-    col_nav_1, col_nav_2 = st.columns([1.5, 1])
+    col_nav_1, _ = st.columns([1.5, 1])
     with col_nav_1:
         if st.button("← Back to Requests", key="btn_back"):
             if on_back_callback: on_back_callback()
             st.rerun()
-    with col_nav_2:
-        try:
-            import re
-            from src.pdf_report import generate_report
-            top_pdf_bytes = generate_report(case_data)
-            clean_top_id = re.sub(r'[^A-Za-z0-9\-\_]', '', str(req_id)) if req_id else ""
-            top_filename = f"PriorAuth_{clean_top_id}.pdf" if clean_top_id and clean_top_id not in ("REQ001", "UNKNOWN", "REQNEW", "N/A") else "PriorAuth_Report.pdf"
-            st.download_button(
-                label="📄 Download Authorization Report",
-                data=top_pdf_bytes,
-                file_name=top_filename,
-                mime="application/pdf",
-                type="primary",
-                key=f"top_btn_dl_report_{req_id}"
-            )
-        except Exception as top_pdf_err:
-            pass
 
     st.markdown(f"""
     <div class="case-header-card">
