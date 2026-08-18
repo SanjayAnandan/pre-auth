@@ -831,7 +831,7 @@ def clean_patient(
 def parse_patient(
     text: str,
     api_key: Optional[str] = None,
-    model: str = "llama-3.3-70b-versatile"
+    model: str = "openai/gpt-oss-120b"
 ):
     if not text or not text.strip():
         raise ValueError(
