@@ -1,12 +1,63 @@
 import json
 import re
 import os
-from typing import Any, Dict, List, Optional
+import hashlib
+import copy
+import logging
+from typing import Any, Dict, List, Optional, Tuple
 
 from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# EXTRACTION CACHE & DOCUMENT HASHING
+# ============================================================
+
+# Global in-memory cache for patient extraction
+# Key: (document_hash, model, prompt_version)
+_PATIENT_EXTRACTION_CACHE: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+PROMPT_VERSION = "v1.0"
+
+
+def normalize_text_for_hashing(text: str) -> str:
+    """
+    Normalize document text deterministically for SHA-256 hashing:
+    - normalize line endings (\r\n -> \n)
+    - strip trailing whitespace on each line
+    - collapse repeated blank lines
+    - strip leading/trailing overall whitespace
+    """
+    if not text:
+        return ""
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    cleaned_lines = []
+    prev_empty = False
+    for line in lines:
+        is_empty = (line == "")
+        if is_empty and prev_empty:
+            continue
+        cleaned_lines.append(line)
+        prev_empty = is_empty
+    return "\n".join(cleaned_lines).strip()
+
+
+def compute_document_hash(text: str) -> str:
+    """
+    Compute SHA-256 hash of normalized document text.
+    """
+    norm_text = normalize_text_for_hashing(text)
+    return hashlib.sha256(norm_text.encode("utf-8")).hexdigest()
+
+
+def clear_extraction_cache():
+    """Clear in-memory extraction cache (for testing/resetting)."""
+    global _PATIENT_EXTRACTION_CACHE
+    _PATIENT_EXTRACTION_CACHE.clear()
+
 
 # ============================================================
 # PATIENT SCHEMA
@@ -25,8 +76,8 @@ PATIENT_SCHEMA = {
     "severity": None,
     "severity_evidence": [],
 
-    "previous_treatment": [],
-    "previous_procedure": [],
+    "previous_treatment": None,
+    "previous_procedure": None,
 
     "requested_service": None,
     "cpt_hcpcs_code": None,
@@ -513,16 +564,19 @@ def _normalize_documentation(
 
 def _normalize_treatments(
     treatments
-) -> List[Dict[str, Any]]:
+) -> Optional[List[Dict[str, Any]]]:
     """
     Ensure previous_treatment has the expected structure.
+    Returns None if treatments is None (information unavailable).
     """
+    if treatments is None:
+        return None
 
     if not isinstance(
         treatments,
         list
     ):
-        return []
+        return None
 
     result = []
 
@@ -583,16 +637,19 @@ def _normalize_treatments(
 
 def _normalize_procedures(
     procedures
-) -> List[Dict[str, Any]]:
+) -> Optional[List[Dict[str, Any]]]:
     """
     Normalize previous procedures.
+    Returns None if procedures is None (information unavailable).
     """
+    if procedures is None:
+        return None
 
     if not isinstance(
         procedures,
         list
     ):
-        return []
+        return None
 
     result = []
 
@@ -650,6 +707,7 @@ def clean_patient(
 
     IMPORTANT:
     This function does NOT make policy decisions.
+    Preserves None for unextracted fields so rule engine knows information is unavailable.
     """
 
     result = dict(PATIENT_SCHEMA)
@@ -697,8 +755,7 @@ def clean_patient(
     )
 
     severity_evidence = patient.get(
-        "severity_evidence",
-        []
+        "severity_evidence"
     )
 
     if isinstance(
@@ -710,6 +767,10 @@ def clean_patient(
             for item in severity_evidence
             if str(item).strip()
         ]
+    elif severity_evidence is None:
+        result["severity_evidence"] = None
+    else:
+        result["severity_evidence"] = []
 
     result["requested_service"] = _clean_string(
         patient.get("requested_service")
@@ -744,146 +805,120 @@ def clean_patient(
     )
 
     # --------------------------------------------------------
-    # Structured fields
+    # Structured fields - Preserve None if unextracted
     # --------------------------------------------------------
 
-    result["previous_treatment"] = (
-        _normalize_treatments(
-            patient.get(
-                "previous_treatment",
-                []
-            )
-        )
-    )
+    if "previous_treatment" in patient and patient["previous_treatment"] is not None:
+        result["previous_treatment"] = _normalize_treatments(patient.get("previous_treatment"))
+    else:
+        result["previous_treatment"] = None
 
-    result["previous_procedure"] = (
-        _normalize_procedures(
-            patient.get(
-                "previous_procedure",
-                []
-            )
-        )
-    )
+    if "previous_procedure" in patient and patient["previous_procedure"] is not None:
+        result["previous_procedure"] = _normalize_procedures(patient.get("previous_procedure"))
+    else:
+        result["previous_procedure"] = None
 
-    result["documentation"] = (
-        _normalize_documentation(
-            patient.get(
-                "documentation",
-                {}
-            )
-        )
-    )
+    if "documentation" in patient and patient["documentation"] is not None:
+        result["documentation"] = _normalize_documentation(patient.get("documentation"))
+    else:
+        result["documentation"] = {}
 
-    clinical_information = patient.get(
-        "clinical_information",
-        {}
-    )
+    clinical_information = patient.get("clinical_information")
+    if isinstance(clinical_information, dict):
+        result["clinical_information"] = clinical_information
+    else:
+        result["clinical_information"] = {}
 
-    if not isinstance(
-        clinical_information,
-        dict
-    ):
-        clinical_information = {}
-
-    result["clinical_information"] = (
-        clinical_information
-    )
-
-    # --------------------------------------------------------
-    # CRITICAL:
-    #
-    # Never allow documentation_complete through.
-    # --------------------------------------------------------
-
-    result.pop(
-        "documentation_complete",
-        None
-    )
-
-    # Also remove accidental decision fields.
-    result.pop(
-        "approved",
-        None
-    )
-
-    result.pop(
-        "denied",
-        None
-    )
-
-    result.pop(
-        "manual_review",
-        None
-    )
-
-    result.pop(
-        "policy_decision",
-        None
-    )
+    # Remove accidental decision fields
+    result.pop("documentation_complete", None)
+    result.pop("approved", None)
+    result.pop("denied", None)
+    result.pop("manual_review", None)
+    result.pop("policy_decision", None)
 
     return result
 
 
 # ============================================================
-# MAIN PARSER
+# MAIN PARSER (IDEMPOTENT & CACHED)
 # ============================================================
 
 def parse_patient(
     text: str,
     api_key: Optional[str] = None,
     model: str = "openai/gpt-oss-120b"
-):
+) -> Dict[str, Any]:
     if not text or not text.strip():
-        raise ValueError(
-            "Patient document text is empty."
-        )
+        raise ValueError("Patient document text is empty.")
 
-    # --------------------------------------------------------
-    # Load API key from .env if it wasn't explicitly supplied
-    # --------------------------------------------------------
+    # 1. Compute SHA-256 document hash & check in-memory cache
+    doc_hash = compute_document_hash(text)
+    cache_key = (doc_hash, model, PROMPT_VERSION)
 
+    if cache_key in _PATIENT_EXTRACTION_CACHE:
+        logger.info(f"Patient extraction CACHE HIT for document hash {doc_hash[:12]}...")
+        cached_result = copy.deepcopy(_PATIENT_EXTRACTION_CACHE[cache_key])
+        return cached_result
+
+    # 2. Load API key from .env if not supplied
     if not api_key:
         api_key = os.getenv("GROQ_API_KEY")
 
     if not api_key:
-        raise ValueError(
-            "GROQ_API_KEY was not found. "
-            "Check your .env file."
+        raise ValueError("GROQ_API_KEY was not found. Check your .env file.")
+
+    client = Groq(api_key=api_key)
+
+    # 3. Call Groq API with temperature=0 and json_object response_format
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": PATIENT_EXTRACTION_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Extract the patient information "
+                        "from the following document:\n\n"
+                        + text
+                    )
+                }
+            ]
+        )
+    except Exception as e:
+        logger.warning(f"Groq response_format json_object failed ({e}); falling back to default completions...")
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": PATIENT_EXTRACTION_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Extract the patient information "
+                        "from the following document:\n\n"
+                        + text
+                    )
+                }
+            ]
         )
 
-    client = Groq(
-        api_key=api_key
-    )
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        messages=[
-            {
-                "role": "system",
-                "content": PATIENT_EXTRACTION_PROMPT
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Extract the patient information "
-                    "from the following document:\n\n"
-                    + text
-                )
-            }
-        ]
-    )
-
     raw_content = response.choices[0].message.content
+    extracted = _extract_json(raw_content)
+    patient = clean_patient(extracted)
+    patient["_document_hash"] = doc_hash
 
-    extracted = _extract_json(
-        raw_content
-    )
-
-    patient = clean_patient(
-        extracted
-    )
-
-    return patient
+    # Store deepcopy in application-level in-memory cache
+    _PATIENT_EXTRACTION_CACHE[cache_key] = copy.deepcopy(patient)
+    return copy.deepcopy(patient)
 # ============================================================
 # BACKWARD-COMPATIBLE PATIENT VALIDATION
 # ============================================================

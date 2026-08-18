@@ -545,9 +545,18 @@ def check_previous_treatment(
         }
 
     previous = patient.get(
-        "previous_treatment",
-        []
+        "previous_treatment"
     )
+
+    if previous is None:
+        return {
+            "criterion": "Previous Treatment",
+            "status": "UNAVAILABLE",
+            "reason": (
+                "Previous treatment details not documented "
+                "or unextracted — Information unavailable."
+            )
+        }
 
     if not isinstance(
         previous,
@@ -570,7 +579,7 @@ def check_previous_treatment(
             "status": "FAILED",
             "reason": (
                 "Required previous treatment "
-                "was not found."
+                "was explicitly empty or not provided."
             )
         }
 
@@ -779,9 +788,19 @@ def check_previous_procedure(
         }
 
     procedures = patient.get(
-        "previous_procedure",
-        []
+        "previous_procedure"
     )
+
+    if procedures is None:
+
+        return {
+            "criterion": "Previous Procedure",
+            "status": "UNAVAILABLE",
+            "reason": (
+                "Previous procedure details not documented "
+                "or unextracted — Information unavailable."
+            )
+        }
 
     if not procedures:
 
