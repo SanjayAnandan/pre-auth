@@ -1,4 +1,19 @@
+"""
+app.py - High-End Healthcare Prior Authorization Case Management Application
+
+Orchestrates prior authorization intake, ML risk prediction, deterministic
+policy evaluation, and Supabase PostgreSQL persistence with a clinical SaaS UI.
+"""
+
 from pathlib import Path
+import logging
+import os
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
+
+# Ensure .env is reloaded on each run
+load_dotenv(override=True)
 
 import streamlit as st
 
@@ -7,1543 +22,400 @@ from src.patient_parser import parse_patient, validate_patient
 from src.normalizer import normalize_patient
 from src.policy_matcher import load_policies
 from src.decision import load_no_prior_auth, process_decision
+from src.database import (
+    is_database_configured,
+    check_database_status,
+    save_patient,
+    create_authorization_request,
+    save_prediction,
+    save_decision,
+    save_decision_criteria,
+    update_authorization_request_status,
+    get_recent_requests,
+    get_decision_criteria,
+)
+from src.predictor import predict_authorization
+from src.ui import (
+    apply_custom_styles,
+    render_top_header,
+    render_sidebar_nav,
+    render_dashboard_view,
+    render_all_requests_view,
+    render_case_view,
+    render_policies_view,
+    render_audit_view,
+    render_empty_state,
+    render_error_state,
+    format_iso_timestamp,
+    safe_str,
+    safe_title,
+    safe_upper,
+)
 
+logger = logging.getLogger(__name__)
 
 # ============================================================
-# PATHS
+# PATHS & CONFIGURATION
 # ============================================================
 
 ROOT_DIR = Path(__file__).resolve().parent
-
 POLICY_PATH = ROOT_DIR / "data" / "policies.json"
 NO_PA_PATH = ROOT_DIR / "data" / "no_prior_auth.json"
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
+# Page configuration
 st.set_page_config(
-    page_title="PriorAuth AI",
-    page_icon="🏥",
+    page_title="PREAUTH — Prior Authorization Management",
+    page_icon="✚",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
+# Apply unified clinical CSS design system
+apply_custom_styles()
+
 
 # ============================================================
-# CSS
+# SESSION STATE INITIALIZATION
 # ============================================================
 
-st.markdown(
+if "active_case" not in st.session_state:
+    st.session_state.active_case = None
+
+if "nav_page" not in st.session_state:
+    st.session_state.nav_page = "dashboard"
+
+
+# ============================================================
+# HELPER FUNCTIONS TO BUILD CASE OBJECTS
+# ============================================================
+
+def build_case_from_db_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """
-    <style>
-
-    @import url(
-        'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap'
-    );
-
-    :root {
-        --paper: #EEF1EF;
-        --ink: #1B2430;
-        --brand: #146356;
-        --approve: #2F8F5B;
-        --deny: #B94A3B;
-        --review: #C98A2B;
-        --highlight: #F5C84C;
-        --surface: #F7F9F7;
-        --muted: #68736F;
-        --line: #DCE3DF;
-    }
-
-
-    /* ========================================================
-       GLOBAL
-       ======================================================== */
-
-    .stApp {
-        background: var(--paper);
-        color: var(--ink);
-    }
-
-    .block-container {
-        max-width: 1120px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-
-    header {
-        visibility: hidden;
-    }
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
-
-    /* ========================================================
-       TYPOGRAPHY
-       ======================================================== */
-
-    h1,
-    h2,
-    h3 {
-        font-family: "Fraunces", serif !important;
-        color: var(--ink) !important;
-    }
-
-    h1 {
-        font-size: 2.7rem !important;
-        letter-spacing: -1.2px !important;
-    }
-
-    h2 {
-        font-size: 1.8rem !important;
-    }
-
-    h3 {
-        font-size: 1.3rem !important;
-    }
-
-    p,
-    label,
-    button {
-        font-family: "IBM Plex Sans", sans-serif !important;
-    }
-
-    [data-testid="stCaptionContainer"] {
-        color: var(--muted);
-    }
-
-
-    /* ========================================================
-       CONTAINERS
-       ======================================================== */
-
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--surface);
-        border: none !important;
-        border-radius: 18px !important;
-        box-shadow:
-            0 12px 35px rgba(27, 36, 48, 0.07);
-    }
-
-
-    /* ========================================================
-       FILE UPLOADER
-       ======================================================== */
-
-    [data-testid="stFileUploader"] {
-        background: var(--surface);
-        border-radius: 16px;
-    }
-
-
-    /* ========================================================
-       BUTTONS
-       ======================================================== */
-
-    .stButton > button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        border: none !important;
-    }
-
-    .stButton > button[kind="primary"] {
-        background: var(--brand) !important;
-        color: white !important;
-        box-shadow:
-            0 7px 18px rgba(20, 99, 86, 0.18);
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        background: #105448 !important;
-
-        box-shadow:
-            0 11px 25px rgba(20, 99, 86, 0.24);
-    }
-
-
-    /* ========================================================
-       METRICS
-       ======================================================== */
-
-    [data-testid="stMetric"] {
-        background: var(--surface);
-        border: none !important;
-        border-radius: 14px;
-        padding: 16px;
-
-        box-shadow:
-            0 8px 25px rgba(27, 36, 48, 0.06);
-    }
-
-    [data-testid="stMetricLabel"] {
-        font-family: "IBM Plex Sans", sans-serif !important;
-        color: var(--muted) !important;
-        font-size: 0.75rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-    }
-
-    [data-testid="stMetricValue"] {
-        font-family: "IBM Plex Mono", monospace !important;
-        color: var(--ink) !important;
-        font-size: 1rem !important;
-    }
-
-
-    /* ========================================================
-       ALERTS
-       ======================================================== */
-
-    [data-testid="stAlert"] {
-        border-radius: 12px !important;
-    }
-
-
-    /* ========================================================
-       EXPANDERS
-       ======================================================== */
-
-    [data-testid="stExpander"] {
-        background: var(--surface);
-        border: none !important;
-        border-radius: 14px !important;
-
-        box-shadow:
-            0 8px 25px rgba(27, 36, 48, 0.05);
-    }
-
-
-    /* ========================================================
-       DIVIDERS
-       ======================================================== */
-
-    hr {
-        border-color: var(--line) !important;
-    }
-
-
-    /* ========================================================
-       ANIMATIONS
-       ======================================================== */
-
-    @keyframes fadeUp {
-
-        from {
-            opacity: 0;
-            transform: translateY(8px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-    }
-
-    @keyframes stampIn {
-
-        0% {
-            opacity: 0;
-            transform:
-                scale(1.35)
-                rotate(-7deg);
-        }
-
-        65% {
-            opacity: 1;
-            transform:
-                scale(0.96)
-                rotate(-1deg);
-        }
-
-        100% {
-            opacity: 1;
-            transform:
-                scale(1)
-                rotate(-2deg);
-        }
-
-    }
-
-    .stMarkdown,
-    [data-testid="stMetric"],
-    [data-testid="stFileUploader"],
-    .stButton {
-        animation:
-            fadeUp 350ms ease-out both;
-    }
-
-
-    /* ========================================================
-       DECISION STAMPS
-       ======================================================== */
-
-    .decision-stamp-container {
-        padding: 55px 10px;
-        text-align: center;
-    }
-
-    .decision-stamp-approved {
-        display: inline-block;
-
-        color: var(--approve);
-        border: 3px solid var(--approve);
-        border-radius: 14px;
-
-        padding: 17px 27px;
-
-        font-family: "Fraunces", serif;
-        font-size: 2.1rem;
-        font-weight: 700;
-
-        letter-spacing: 1.5px;
-
-        transform: rotate(-2deg);
-
-        animation:
-            stampIn 420ms
-            cubic-bezier(.175,.885,.32,1.275)
-            both;
-
-        box-shadow:
-            0 8px 22px rgba(47, 143, 91, 0.10);
-    }
-
-    .decision-stamp-denied {
-        display: inline-block;
-
-        color: var(--deny);
-        border: 3px solid var(--deny);
-        border-radius: 14px;
-
-        padding: 17px 27px;
-
-        font-family: "Fraunces", serif;
-        font-size: 2.1rem;
-        font-weight: 700;
-
-        letter-spacing: 1.5px;
-
-        transform: rotate(-2deg);
-
-        animation:
-            stampIn 420ms
-            cubic-bezier(.175,.885,.32,1.275)
-            both;
-
-        box-shadow:
-            0 8px 22px rgba(185, 74, 59, 0.10);
-    }
-
-    .decision-stamp-review {
-        display: inline-block;
-
-        color: var(--review);
-        border: 3px solid var(--review);
-        border-radius: 14px;
-
-        padding: 17px 27px;
-
-        font-family: "Fraunces", serif;
-        font-size: 2.1rem;
-        font-weight: 700;
-
-        letter-spacing: 1.5px;
-
-        transform: rotate(-2deg);
-
-        animation:
-            stampIn 420ms
-            cubic-bezier(.175,.885,.32,1.275)
-            both;
-
-        box-shadow:
-            0 8px 22px rgba(201, 138, 43, 0.10);
-    }
-
-
-    /* ========================================================
-       REDUCED MOTION
-       ======================================================== */
-
-    @media (prefers-reduced-motion: reduce) {
-
-        *,
-        *::before,
-        *::after {
-
-            animation-duration: 0.01ms !important;
-
-            animation-iteration-count: 1 !important;
-
-            transition-duration: 0.01ms !important;
-        }
-
-    }
-
-
-    /* ========================================================
-       MOBILE
-       ======================================================== */
-
-    @media (max-width: 700px) {
-
-        .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-
-        h1 {
-            font-size: 2.2rem !important;
-        }
-
-        .decision-stamp-approved,
-        .decision-stamp-denied,
-        .decision-stamp-review {
-            font-size: 1.6rem;
-        }
-
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "page" not in st.session_state:
-    st.session_state.page = "upload"
-
-if "patient" not in st.session_state:
-    st.session_state.patient = None
-
-if "result" not in st.session_state:
-    st.session_state.result = None
-
-if "missing_fields" not in st.session_state:
-    st.session_state.missing_fields = []
-
-
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
-
-def safe_title(value, default="Not provided"):
-
-    if value is None:
-        return default
-
-    value = str(value).strip()
-
-    if not value:
-        return default
-
-    return value.title()
-
-
-def safe_upper(value, default="Not provided"):
-
-    if value is None:
-        return default
-
-    value = str(value).strip()
-
-    if not value:
-        return default
-
-    return value.upper()
-
-
-def safe_display(value, default="Not provided"):
-
-    if value is None:
-        return default
-
-    if isinstance(value, str) and not value.strip():
-        return default
-
-    return str(value)
-
-
-# ============================================================
-# GET CRITERIA FROM RESULT
-# ============================================================
-
-def get_criteria(result):
+    Transforms a Supabase authorization request record into the unified
+    'One Authorization = One Case' data structure.
     """
-    The current rule_engine.py returns evaluated criteria
-    under the key 'results'.
+    req_id = record.get("id")
+    p_data = record.get("patients") or {}
+    decisions_list = record.get("decisions") or []
+    predictions_list = record.get("predictions") or []
 
-    Older/newer versions may use 'criteria'.
-
-    Support both so the UI never incorrectly shows
-    zero criteria.
-    """
-
-    if not isinstance(result, dict):
-        return []
-
-    criteria = result.get("criteria")
-
-    if isinstance(criteria, list):
-        return criteria
-
-    results = result.get("results")
-
-    if isinstance(results, list):
-        return results
-
-    return []
-
-
-# ============================================================
-# GET APPLIED POLICY
-# ============================================================
-
-def get_policy_name(result):
-
-    if not isinstance(result, dict):
-        return None
-
-    return (
-        result.get("policy_name")
-        or result.get("applied_policy_name")
-    )
-
-
-def get_policy_id(result):
-
-    if not isinstance(result, dict):
-        return None
-
-    return (
-        result.get("policy_id")
-        or result.get("applied_policy_id")
-    )
-
-
-# ============================================================
-# COUNT CRITERIA
-# ============================================================
-
-def count_criteria(criteria):
-
-    passed = 0
-    failed = 0
-    not_applicable = 0
-    other = 0
-
-    for criterion in criteria:
-
-        status = str(
-            criterion.get(
-                "status",
-                ""
-            )
-        ).upper()
-
-        if status == "PASSED":
-            passed += 1
-
-        elif status == "FAILED":
-            failed += 1
-
-        elif status == "NOT_APPLICABLE":
-            not_applicable += 1
-
-        else:
-            other += 1
-
-    return (
-        passed,
-        failed,
-        not_applicable,
-        other
-    )
-
-
-# ============================================================
-# RENDER CRITERION
-# ============================================================
-
-def render_criterion(criterion):
-
-    status = criterion.get(
-        "status",
-        "UNKNOWN"
-    )
-
-    name = criterion.get(
-        "criterion",
-        "Criterion"
-    )
-
-    reason = criterion.get(
-        "reason",
-        ""
-    )
-
-    status = str(
-        status
-    ).upper()
-
-    if status == "PASSED":
-
-        st.success(
-            f"✓ {name}"
-        )
-
-    elif status == "FAILED":
-
-        st.error(
-            f"✗ {name}"
-        )
-
-    elif status == "NOT_APPLICABLE":
-
-        st.info(
-            f"— {name}"
-        )
-
+    # 1. Decision details
+    if decisions_list and len(decisions_list) > 0:
+        dec_obj = decisions_list[0]
+        dec_id = dec_obj.get("id")
+        final_decision = dec_obj.get("final_decision", record.get("request_status", "UNKNOWN"))
+        policy_id = dec_obj.get("policy_id") or "POL-001"
+        policy_name = dec_obj.get("policy_name") or "Medical Coverage Policy"
+        failed_criteria = dec_obj.get("failed_criteria") or []
+        manual_flags = dec_obj.get("manual_review_reasons") or []
+        reason = dec_obj.get("reason", "")
     else:
+        dec_id = None
+        final_decision = record.get("request_status", "PENDING")
+        policy_id = "POL-001"
+        policy_name = "Medical Coverage Policy"
+        failed_criteria = []
+        manual_flags = []
+        reason = ""
 
-        st.warning(
-            f"? {name}"
-        )
+    # 2. Criteria retrieval
+    criteria_list = []
+    if dec_id:
+        try:
+            criteria_list = get_decision_criteria(dec_id)
+        except Exception as e:
+            logger.warning(f"Failed to fetch criteria for decision {dec_id}: {e}")
 
-    if reason:
+    # 3. Prediction details
+    pred_data = predictions_list[0] if predictions_list and len(predictions_list) > 0 else {}
 
-        st.caption(
-            reason
-        )
+    # 4. Matching PDF Document from local uploads cache
+    matched_pdf_bytes = None
+    matched_pdf_name = f"Patient_{p_data.get('patient_id', 'Record')}.pdf"
+    matched_pdf_size = "PDF Document"
+
+    for p_file in UPLOAD_DIR.glob("*.pdf"):
+        try:
+            with open(p_file, "rb") as pf:
+                matched_pdf_bytes = pf.read()
+                matched_pdf_name = p_file.name
+                matched_pdf_size = f"{len(matched_pdf_bytes) / 1024.0:.1f} KB"
+            break
+        except Exception:
+            pass
+
+    return {
+        "patient": p_data,
+        "request": record,
+        "decision": {
+            "id": dec_id,
+            "policy_id": policy_id,
+            "policy_name": policy_name,
+            "decision": final_decision,
+            "reason": reason,
+            "failed_criteria": failed_criteria,
+            "manual_review_reasons": manual_flags,
+        },
+        "prediction": pred_data,
+        "criteria": criteria_list,
+        "pdf": {
+            "filename": matched_pdf_name,
+            "bytes": matched_pdf_bytes,
+            "size_str": matched_pdf_size,
+        },
+        "audit": {
+            "patient_db_id": p_data.get("id"),
+            "request_id": req_id,
+            "decision_id": dec_id,
+            "created_at": record.get("created_at"),
+        }
+    }
+
+
+def select_case_callback(record: Dict[str, Any]):
+    """Callback triggered when user clicks 'Open Case' on any request card."""
+    case_obj = build_case_from_db_record(record)
+    st.session_state.active_case = case_obj
+    st.rerun()
+
+
+def back_to_requests_callback():
+    """Callback triggered when user clicks 'Back to Requests' inside a case."""
+    st.session_state.active_case = None
 
 
 # ============================================================
-# RENDER ALL CRITERIA
+# MAIN APPLICATION WORKFLOW
 # ============================================================
 
-def render_criteria(criteria):
+def main():
+    # 1. Fetch DB Status & History Records
+    db_status = check_database_status()
+    try:
+        all_requests = get_recent_requests(limit=100)
+    except Exception as e:
+        logger.error(f"Error loading requests from Supabase: {e}")
+        all_requests = []
 
-    if not criteria:
+    # 2. Render Global App Header & Sidebar Nav
+    render_top_header(db_status)
+    nav_view = render_sidebar_nav(db_status)
 
-        st.info(
-            "No policy criteria were returned "
-            "by the policy evaluation engine."
-        )
-
+    # If an active case is selected, render the unified Case View
+    if st.session_state.active_case is not None:
+        render_case_view(st.session_state.active_case, on_back_callback=back_to_requests_callback)
         return
 
-    left_criteria, right_criteria = st.columns(
-        2
-    )
-
-    midpoint = (
-        len(criteria) + 1
-    ) // 2
-
-    with left_criteria:
-
-        for criterion in criteria[
-            :midpoint
-        ]:
-
-            render_criterion(
-                criterion
-            )
-
-    with right_criteria:
-
-        for criterion in criteria[
-            midpoint:
-        ]:
-
-            render_criterion(
-                criterion
-            )
-
-
-# ============================================================
-# UPLOAD PAGE
-# ============================================================
-
-if st.session_state.page == "upload":
-
-    st.title("🏥 PriorAuth AI")
-
-    st.caption(
-        "Intelligent Prior Authorization Decision Support"
-    )
-
-    st.divider()
-
-    st.title(
-        "Prior Authorization Review"
-    )
-
-    st.write(
-        "Upload a patient record and let the policy engine "
-        "evaluate the request against the applicable "
-        "coverage requirements."
-    )
-
-    st.write("")
-
-    with st.container(border=True):
-
-        st.subheader(
-            "Patient Record"
+    # 3. Render Selected View
+    if nav_view == "dashboard":
+        render_dashboard_view(
+            requests=all_requests,
+            on_select_case_callback=select_case_callback
         )
 
+    elif nav_view == "requests":
+        render_all_requests_view(
+            requests=all_requests,
+            on_select_case_callback=select_case_callback
+        )
+
+    elif nav_view == "upload":
+        render_intake_pipeline(all_requests)
+
+    elif nav_view == "policies":
+        try:
+            policies_data = load_policies(POLICY_PATH)
+        except Exception:
+            policies_data = []
+        render_policies_view(policies_data)
+
+    elif nav_view == "audit":
+        render_audit_view(db_status, all_requests)
+
+
+# ============================================================
+# INTAKE PIPELINE COMPONENT (NEW REQUEST)
+# ============================================================
+
+def render_intake_pipeline(existing_requests: List[Dict[str, Any]]):
+    """
+    Renders the document upload and end-to-end clinical evaluation pipeline.
+    """
+    st.markdown(
+        """
+        <div style="margin-bottom: 18px;">
+            <h2 style="margin: 0 0 4px 0; font-size: 24px; font-weight: 700;">New Authorization Intake</h2>
+            <p style="color: var(--slate-500); margin: 0; font-size: 14px;">Upload a clinical patient PDF document to evaluate coverage rules against medical policies.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col_up, col_guide = st.columns([1.5, 1.0])
+
+    with col_up:
         uploaded_file = st.file_uploader(
-            "Upload patient PDF",
+            "Upload clinical record PDF",
             type=["pdf"],
-            help=(
-                "Upload a structured patient record. "
-                "The PDF is processed in memory and "
-                "is not saved to the data folder."
-            ),
+            help="Upload a structured patient clinical record or medical chart PDF.",
+            key="intake_pdf_uploader"
         )
 
         if uploaded_file is not None:
+            pdf_bytes = uploaded_file.getvalue()
+            pdf_size_kb = len(pdf_bytes) / 1024.0
 
-            st.success(
-                f"✓ {uploaded_file.name}"
+            st.markdown(
+                f"""
+                <div style="background: #ffffff; border: 1px solid var(--slate-200); border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
+                    <div style="font-size: 13px; font-weight: 600; color: var(--slate-900);">📄 {uploaded_file.name}</div>
+                    <div style="font-size: 11px; color: var(--slate-500);">Size: {pdf_size_kb:.1f} KB • Ready for extraction & analysis</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
 
-            st.caption(
-                "Ready for authorization evaluation."
-            )
+            if st.button("Evaluate Prior Authorization →", type="primary", use_container_width=True, key="btn_run_eval"):
+                run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes, pdf_size_kb)
 
-            st.write("")
+    with col_guide:
+        st.markdown(
+            """
+            <div style="background: #ffffff; border: 1px solid var(--slate-200); border-radius: var(--radius-lg); padding: 18px 20px;">
+                <h4 style="font-size: 14px; font-weight: 700; margin: 0 0 8px 0;">Intake Evaluation Stages</h4>
+                <div style="font-size: 12px; color: var(--slate-600); line-height: 1.6;">
+                    1. <strong>Document Ingestion:</strong> Cache clinical PDF to uploads.<br/>
+                    2. <strong>Text Extraction:</strong> Extract medical narrative via PDF engine.<br/>
+                    3. <strong>Clinical Parsing:</strong> Extract diagnosis, ICD-10, CPT, severity.<br/>
+                    4. <strong>Normalization:</strong> Standardize patient codes and clinical terms.<br/>
+                    5. <strong>Supabase Registry:</strong> Save patient & authorization record.<br/>
+                    6. <strong>AI Risk Signal:</strong> Score ML model approval probabilities.<br/>
+                    7. <strong>Rule Engine:</strong> Deterministically test coverage criteria.<br/>
+                    8. <strong>Determination:</strong> Produce final explainable case determination.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-            evaluate = st.button(
-                "Evaluate Prior Authorization →",
-                type="primary",
-                use_container_width=True,
-            )
 
-            if evaluate:
+def run_clinical_evaluation_pipeline(uploaded_file, pdf_bytes: bytes, pdf_size_kb: float):
+    """Executes the full prior authorization evaluation pipeline."""
+    try:
+        # Step 1: Save PDF locally
+        saved_pdf_path = UPLOAD_DIR / uploaded_file.name
+        with open(saved_pdf_path, "wb") as f:
+            f.write(pdf_bytes)
 
+        # Step 2: Extract text
+        with st.spinner("1/7 Ingesting document & extracting clinical text..."):
+            raw_text = extract_text_from_pdf(uploaded_file)
+
+        if not raw_text or not raw_text.strip():
+            st.error("The uploaded PDF does not contain extractable text. Please ensure it is a valid clinical document.")
+            return
+
+        # Step 3: Parse patient information
+        with st.spinner("2/7 Parsing clinical entities, procedures, and diagnosis..."):
+            patient = parse_patient(raw_text)
+
+        # Step 4: Normalize and validate
+        with st.spinner("3/7 Normalizing clinical coding standards and medical terms..."):
+            patient = normalize_patient(patient)
+            validation = validate_patient(patient)
+
+        # Step 5: Save patient & create authorization request in Supabase
+        db_patient_id = None
+        db_request_id = None
+        with st.spinner("4/7 Persisting patient record in Supabase PostgreSQL..."):
+            try:
+                db_patient_id = save_patient(patient)
+                db_request_id = create_authorization_request(
+                    db_patient_id,
+                    patient,
+                    status="PENDING"
+                )
+            except Exception as db_err:
+                logger.warning(f"Database insertion skipped: {db_err}")
+
+        # Step 6: ML Prediction Signal
+        with st.spinner("5/7 Generating AI risk signal and probability distribution..."):
+            prediction_res = predict_authorization(patient)
+            if db_request_id and prediction_res.get("status") == "success":
                 try:
+                    save_prediction(db_request_id, prediction_res)
+                except Exception as pred_err:
+                    logger.warning(f"Failed to persist prediction: {pred_err}")
 
-                    # ==================================================
-                    # 1. PDF EXTRACTION
-                    # ==================================================
+        # Step 7: Policy Matching & Rule Engine Evaluation
+        with st.spinner("6/7 Evaluating coverage guidelines against medical policy rules..."):
+            policies = load_policies(POLICY_PATH)
+            no_pa_codes = load_no_prior_auth(NO_PA_PATH)
+            result = process_decision(patient, policies, no_pa_codes)
 
-                    with st.spinner(
-                        "Reading patient record..."
-                    ):
-
-                        raw_text = extract_text_from_pdf(
-                            uploaded_file
-                        )
-
-                    if not raw_text:
-
-                        st.error(
-                            "No text could be extracted "
-                            "from this PDF."
-                        )
-
-                        st.stop()
-
-                    if not raw_text.strip():
-
-                        st.error(
-                            "The PDF does not contain "
-                            "extractable text."
-                        )
-
-                        st.stop()
-
-
-                    # ==================================================
-                    # 2. PATIENT PARSING
-                    # ==================================================
-
-                    with st.spinner(
-                        "Extracting patient details..."
-                    ):
-
-                        patient = parse_patient(
-                            raw_text
-                        )
-
-
-                    # ==================================================
-                    # 3. BASIC NORMALIZATION
-                    # ==================================================
-
-                    patient = normalize_patient(
-                        patient
+        # Step 8: Save Final Decision & Criteria
+        db_decision_id = None
+        criteria_to_save = result.get("criteria") or result.get("results") or []
+        with st.spinner("7/7 Recording final determination and audit ledger..."):
+            if db_request_id and result:
+                try:
+                    db_decision_id = save_decision(db_request_id, result)
+                    save_decision_criteria(db_decision_id, criteria_to_save)
+                    update_authorization_request_status(
+                        db_request_id,
+                        result.get("decision", "MANUAL REVIEW")
                     )
-
-
-                    # ==================================================
-                    # 4. VALIDATION
-                    # ==================================================
-
-                    validation = validate_patient(
-                        patient
-                    )
-
-                    # --------------------------------------------------
-                    # Your validate_patient() versions have used both
-                    # "missing_fields" and "errors".
-                    # Support both.
-                    # --------------------------------------------------
-
-                    missing_fields = validation.get(
-                        "missing_fields",
-                        []
-                    )
-
-                    if not missing_fields:
-
-                        missing_fields = validation.get(
-                            "errors",
-                            []
-                        )
-
-                    st.session_state.missing_fields = (
-                        missing_fields
-                    )
-
-
-                    # ==================================================
-                    # 5. LOAD POLICIES
-                    # ==================================================
-
-                    with st.spinner(
-                        "Loading coverage policies..."
-                    ):
-
-                        policies = load_policies(
-                            POLICY_PATH
-                        )
-
-                        no_pa_codes = load_no_prior_auth(
-                            NO_PA_PATH
-                        )
-
-
-                    # ==================================================
-                    # 6. POLICY EVALUATION
-                    # ==================================================
-
-                    with st.spinner(
-                        "Evaluating authorization criteria..."
-                    ):
-
-                        result = process_decision(
-                            patient,
-                            policies,
-                            no_pa_codes
-                        )
-
-
-                    # ==================================================
-                    # 7. STORE RESULT
-                    # ==================================================
-
-                    st.session_state.patient = (
-                        patient
-                    )
-
-                    st.session_state.result = (
-                        result
-                    )
-
-                    st.session_state.page = (
-                        "decision"
-                    )
-
-                    st.rerun()
-
-
-                except Exception as e:
-
-                    st.error(
-                        "Something went wrong while "
-                        "processing the patient record."
-                    )
-
-                    st.exception(e)
-
-
-# ============================================================
-# DECISION PAGE
-# ============================================================
-
-elif st.session_state.page == "decision":
-
-    patient = st.session_state.patient
-
-    result = st.session_state.result
-
-
-    # ========================================================
-    # SAFETY CHECK
-    # ========================================================
-
-    if patient is None or result is None:
-
-        st.session_state.page = "upload"
-
-        st.rerun()
-
-
-    # ========================================================
-    # NEW REQUEST
-    # ========================================================
-
-    if st.button(
-        "← New Request"
-    ):
-
-        st.session_state.page = (
-            "upload"
-        )
-
-        st.session_state.patient = None
-
-        st.session_state.result = None
-
-        st.session_state.missing_fields = []
-
-        st.rerun()
-
-
-    # ========================================================
-    # HEADER
-    # ========================================================
-
-    st.title(
-        "🏥 PriorAuth AI"
-    )
-
-    st.caption(
-        "Authorization Decision"
-    )
-
-    st.divider()
-
-
-    # ========================================================
-    # REQUEST SUMMARY
-    # ========================================================
-
-    st.subheader(
-        "Request Summary"
-    )
-
-    patient_id = patient.get(
-        "patient_id"
-    )
-
-    payer = patient.get(
-        "payer"
-    )
-
-    service = patient.get(
-        "requested_service"
-    )
-
-    code = patient.get(
-        "cpt_hcpcs_code"
-    )
-
-
-    patient_id_display = safe_display(
-        patient_id
-    )
-
-    payer_display = safe_title(
-        payer
-    )
-
-    service_display = safe_title(
-        service
-    )
-
-    code_display = safe_upper(
-        code
-    )
-
-
-    col1, col2, col3, col4 = st.columns(
-        [1, 1, 2.3, 1]
-    )
-
-
-    with col1:
-
-        st.metric(
-            "PATIENT ID",
-            patient_id_display
-        )
-
-
-    with col2:
-
-        st.metric(
-            "PAYER",
-            payer_display
-        )
-
-
-    with col3:
-
-        st.metric(
-            "REQUESTED SERVICE",
-            service_display
-        )
-
-
-    with col4:
-
-        st.metric(
-            "CPT / HCPCS",
-            code_display
-        )
-
-
-    st.write("")
-
-
-    # ========================================================
-    # MISSING INFORMATION WARNING
-    # ========================================================
-
-    missing_fields = st.session_state.get(
-        "missing_fields",
-        []
-    )
-
-    if missing_fields:
-
-        with st.container(border=True):
-
-            st.warning(
-                "Some patient information could not "
-                "be extracted from the submitted PDF."
-            )
-
-            readable_fields = []
-
-            for field in missing_fields:
-
-                field = str(
-                    field
-                )
-
-                readable_fields.append(
-                    field.replace(
-                        "_",
-                        " "
-                    ).title()
-                )
-
-            st.caption(
-                "Missing fields: "
-                + ", ".join(
-                    readable_fields
-                )
-            )
-
-
-    # ========================================================
-    # DECISION
-    # ========================================================
-
-    decision = result.get(
-        "decision",
-        "MANUAL REVIEW"
-    )
-
-    decision = str(
-        decision
-    ).upper()
-
-
-    # ========================================================
-    # GET ACTUAL CRITERIA
-    #
-    # IMPORTANT:
-    #
-    # rule_engine.py currently returns:
-    #
-    #     "results": [...]
-    #
-    # NOT:
-    #
-    #     "criteria": [...]
-    #
-    # get_criteria() handles both.
-    # ========================================================
-
-    criteria = get_criteria(
-        result
-    )
-
-
-    # ========================================================
-    # COUNT RESULTS
-    # ========================================================
-
-    (
-        passed_count,
-        failed_count,
-        not_applicable_count,
-        other_count
-    ) = count_criteria(
-        criteria
-    )
-
-
-    # ========================================================
-    # TWO COLUMN DECISION AREA
-    # ========================================================
-
-    decision_col, reason_col = st.columns(
-        [0.85, 1.65],
-        gap="large"
-    )
-
-
-    # ========================================================
-    # LEFT: FINAL DECISION
-    # ========================================================
-
-    with decision_col:
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Final Decision"
-            )
-
-
-            if decision == "APPROVED":
-
-                st.markdown(
-                    """
-                    <div class="decision-stamp-container">
-                        <div class="decision-stamp-approved">
-                            APPROVED
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.success(
-                    "The request satisfies the "
-                    "applicable policy requirements."
-                )
-
-
-            elif decision == "DENIED":
-
-                st.markdown(
-                    """
-                    <div class="decision-stamp-container">
-                        <div class="decision-stamp-denied">
-                            DENIED
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.error(
-                    "The request does not satisfy "
-                    "one or more policy requirements."
-                )
-
-
-            elif (
-                decision == "MANUAL REVIEW"
-                or decision == "MANUAL_REVIEW"
-            ):
-
-                st.markdown(
-                    """
-                    <div class="decision-stamp-container">
-                        <div class="decision-stamp-review">
-                            MANUAL REVIEW
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.warning(
-                    "The request requires "
-                    "additional review."
-                )
-
-
-            elif decision == "NO_PRIOR_AUTH_REQUIRED":
-
-                st.success(
-                    "NO PRIOR AUTHORIZATION REQUIRED"
-                )
-
-
-            else:
-
-                st.warning(
-                    safe_display(
-                        decision,
-                        "UNKNOWN"
-                    )
-                )
-
-
-    # ========================================================
-    # RIGHT: DECISION EXPLANATION
-    # ========================================================
-
-    with reason_col:
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Decision Explanation"
-            )
-
-
-            # ====================================================
-            # APPROVED
-            # ====================================================
-
-            if decision == "APPROVED":
-
-                if criteria:
-
-                    st.write(
-                        f"The request satisfied "
-                        f"**{passed_count}** "
-                        "policy requirement(s)."
-                    )
-
-                    if not_applicable_count:
-
-                        st.caption(
-                            f"{not_applicable_count} "
-                            "criterion/criteria were "
-                            "not applicable."
-                        )
-
-                else:
-
-                    st.write(
-                        "The request was approved, "
-                        "but no individual criteria "
-                        "were returned by the evaluation engine."
-                    )
-
-
-            # ====================================================
-            # DENIED
-            # ====================================================
-
-            elif decision == "DENIED":
-
-                if criteria:
-
-                    st.write(
-                        f"The request failed "
-                        f"**{failed_count}** "
-                        "policy requirement(s)."
-                    )
-
-                else:
-
-                    st.write(
-                        "The request was denied, "
-                        "but no individual criteria "
-                        "were returned by the evaluation engine."
-                    )
-
-
-            # ====================================================
-            # MANUAL REVIEW
-            # ====================================================
-
-            elif (
-                decision == "MANUAL REVIEW"
-                or decision == "MANUAL_REVIEW"
-            ):
-
-                st.write(
-                    result.get(
-                        "reason",
-                        "The request requires "
-                        "manual review."
-                    )
-                )
-
-
-            # ====================================================
-            # NO PA
-            # ====================================================
-
-            elif decision == "NO_PRIOR_AUTH_REQUIRED":
-
-                st.write(
-                    result.get(
-                        "reason",
-                        "Prior authorization is "
-                        "not required for this service."
-                    )
-                )
-
-
-            else:
-
-                st.write(
-                    result.get(
-                        "reason",
-                        "Policy evaluation completed."
-                    )
-                )
-
-
-    # ========================================================
-    # APPLIED POLICY
-    # ========================================================
-
-    policy_id = get_policy_id(
-        result
-    )
-
-    policy_name = get_policy_name(
-        result
-    )
-
-
-    if policy_id or policy_name:
-
-        st.write("")
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Applied Policy"
-            )
-
-            policy_col1, policy_col2 = st.columns(
-                2
-            )
-
-            with policy_col1:
-
-                st.caption(
-                    "POLICY"
-                )
-
-                st.write(
-                    safe_display(
-                        policy_name
-                    )
-                )
-
-            with policy_col2:
-
-                st.caption(
-                    "POLICY ID"
-                )
-
-                st.code(
-                    safe_display(
-                        policy_id
-                    ),
-                    language=None
-                )
-
-
-    # ========================================================
-    # APPROVED POLICY SUMMARY
-    # ========================================================
-
-    if decision == "APPROVED":
-
-        st.write("")
-
-        with st.container(border=True):
-
-            st.subheader(
-                "Authorization Summary"
-            )
-
-            summary_col1, summary_col2 = st.columns(
-                2
-            )
-
-            with summary_col1:
-
-                st.metric(
-                    "Criteria Satisfied",
-                    passed_count
-                )
-
-            with summary_col2:
-
-                st.metric(
-                    "Criteria Evaluated",
-                    len(criteria)
-                )
-
-
-            # ------------------------------------------------
-            # OPTION TO VIEW CRITERIA
-            # ------------------------------------------------
-
-            if criteria:
-
-                with st.expander(
-                    "View satisfied policy criteria"
-                ):
-
-                    render_criteria(
-                        criteria
-                    )
-
-            else:
-
-                st.warning(
-                    "The authorization was approved, "
-                    "but the decision engine did not "
-                    "return its individual criteria."
-                )
-
-
-    # ========================================================
-    # DENIAL REASONS
-    # ========================================================
-
-    if decision == "DENIED":
-
-        failed_criteria = [
-
-            criterion
-
-            for criterion in criteria
-
-            if str(
-                criterion.get(
-                    "status",
-                    ""
-                )
-            ).upper() == "FAILED"
-
-        ]
-
-
-        if failed_criteria:
-
-            st.write("")
-
-            with st.container(border=True):
-
-                st.subheader(
-                    "Reasons for Denial"
-                )
-
-                for criterion in failed_criteria:
-
-                    name = criterion.get(
-                        "criterion",
-                        "Criterion"
-                    )
-
-                    reason = criterion.get(
-                        "reason",
-                        "Requirement was not satisfied."
-                    )
-
-                    st.error(
-                        f"**{name}** — {reason}"
-                    )
-
-
-        # ----------------------------------------------------
-        # Full criteria available as expandable section
-        # ----------------------------------------------------
-
-        if criteria:
-
-            with st.expander(
-                "View all policy criteria"
-            ):
-
-                render_criteria(
-                    criteria
-                )
-
-
-    # ========================================================
-    # POLICY EVALUATION NOTICE
-    # ========================================================
-
-    if criteria:
-
-        st.write("")
-
-        st.info(
-            "Policy criteria were evaluated against "
-            "the submitted patient information."
-        )
-
-
-    # ========================================================
-    # DEBUG / AUDIT DETAILS
-    #
-    # Useful during development, but hidden by default.
-    # ========================================================
-
-    with st.expander(
-        "View evaluation details"
-    ):
-
-        st.json(
-            {
-                "decision": decision,
-                "policy_id": policy_id,
-                "policy_name": policy_name,
-                "criteria_count": len(criteria),
-                "passed_count": passed_count,
-                "failed_count": failed_count,
-                "not_applicable_count": (
-                    not_applicable_count
-                ),
+                except Exception as dec_err:
+                    logger.warning(f"Failed to persist decision: {dec_err}")
+
+        # Package into Unified Case Object and display immediately
+        case_obj = {
+            "patient": patient,
+            "request": {
+                "id": db_request_id or "REQ-NEW",
+                "requested_service": patient.get("requested_service"),
+                "cpt_hcpcs_code": patient.get("cpt_hcpcs_code"),
+                "quantity": patient.get("quantity", "1"),
+                "frequency": patient.get("frequency", "Single"),
+                "payer": patient.get("payer"),
+                "status": result.get("decision", "PENDING"),
+                "created_at": datetime.utcnow().isoformat(),
+            },
+            "decision": {
+                "id": db_decision_id,
+                "policy_id": result.get("policy_id") or (result.get("policy", {}).get("policy_id") if result.get("policy") else "POL-001"),
+                "policy_name": result.get("policy_name") or (result.get("policy", {}).get("policy_name") if result.get("policy") else "Medical Coverage Policy"),
+                "decision": result.get("decision", "MANUAL REVIEW"),
+                "reason": result.get("reason", ""),
+                "failed_criteria": result.get("failed_criteria", []),
+                "manual_review_reasons": result.get("manual_review_reasons", []),
+            },
+            "prediction": prediction_res,
+            "criteria": criteria_to_save,
+            "pdf": {
+                "filename": uploaded_file.name,
+                "bytes": pdf_bytes,
+                "size_str": f"{pdf_size_kb:.1f} KB",
+                "path": str(saved_pdf_path),
+            },
+            "audit": {
+                "patient_db_id": db_patient_id,
+                "request_id": db_request_id,
+                "decision_id": db_decision_id,
+                "created_at": datetime.utcnow().isoformat(),
             }
-        )
+        }
+
+        st.session_state.active_case = case_obj
+        st.success("Prior authorization evaluation complete. Opening complete clinical case...")
+        st.rerun()
+
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}")
+        render_error_state("An unexpected error occurred during clinical evaluation.", str(e))
 
 
-    # ========================================================
-    # PATIENT DATA
-    # ========================================================
-
-    st.write("")
-
-    with st.expander(
-        "View normalized patient data"
-    ):
-
-        st.json(
-            patient
-        )
+if __name__ == "__main__":
+    main()
