@@ -785,43 +785,45 @@ POLICY CANONICAL VOCABULARY
     # GROQ CALL
     # ========================================================
 
-    response = client.chat.completions.create(
-
-        model="llama-3.3-70b-versatile",
-
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You normalize medical authorization "
-                    "data without changing clinical facts. "
-                    "Return only valid JSON."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
+    try:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You normalize medical authorization "
+                        "data without changing clinical facts. "
+                        "Return only valid JSON."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt + "\n\nRespond with a valid JSON object only."
+                }
+            ],
+            temperature=0,
+            response_format={
+                "type": "json_object"
             }
-        ],
-
-        temperature=0,
-
-        response_format={
-            "type": "json_object"
-        }
-    )
-
-
-    # ========================================================
-    # READ RESPONSE
-    # ========================================================
-
-    content = (
-        response
-        .choices[0]
-        .message
-        .content
-    )
+        )
+        content = response.choices[0].message.content
+    except Exception:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You normalize medical authorization data. Return pure valid JSON only."
+                },
+                {
+                    "role": "user",
+                    "content": prompt + "\n\nReturn pure raw JSON only with no conversational text."
+                }
+            ],
+            temperature=0
+        )
+        content = response.choices[0].message.content
 
 
     if not content:

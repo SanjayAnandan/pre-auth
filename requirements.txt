@@ -1,2 +1,7 @@
 PyMuPDF
 streamlit
+supabase
+python-dotenv
+scikit-learn
+joblib
+groq

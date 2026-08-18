@@ -1,2 +1,12 @@
 .env
-.env
+.env.local
+.env.*.local
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.joblib
+*.pkl
+.DS_Store
