@@ -583,7 +583,7 @@ _NAV_ITEMS = [
 ]
 
 def render_sidebar_nav(db_status: Dict[str, Any] = None) -> str:
-    """Premium fixed sidebar with proper navigation items."""
+    """Premium fixed sidebar with proper navigation items and user session info."""
     with st.sidebar:
         # Brand
         st.markdown("""
@@ -611,7 +611,33 @@ def render_sidebar_nav(db_status: Dict[str, Any] = None) -> str:
                 st.session_state.active_case = None
                 st.rerun()
 
-        # Platform status card
+        # User Session & Platform status card
+        user_info = st.session_state.get("user")
+        if user_info:
+            st.markdown('<div class="sidebar-nav-section" style="margin-top: 16px;">ACTIVE USER</div>', unsafe_allow_html=True)
+            u_name = user_info.get("name", "Clinical User")
+            u_role = user_info.get("role", "Reviewer")
+            u_initials = user_info.get("initials", "CU")
+            u_color = user_info.get("color", "#0f766e")
+            
+            st.markdown(f"""
+            <div style="background: var(--white); border: 1px solid var(--slate-200); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 34px; height: 34px; border-radius: 50%; background: {u_color}; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;">
+                        {u_initials}
+                    </div>
+                    <div style="overflow: hidden;">
+                        <div style="font-size: 13px; font-weight: 700; color: var(--slate-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{u_name}</div>
+                        <div style="font-size: 11px; color: var(--teal-700); font-weight: 600;">{u_role}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("🚪  Sign Out", key="sidebar_logout_btn", use_container_width=True):
+                from src.auth import logout
+                logout()
+
         st.markdown('<div class="sidebar-nav-section" style="margin-top: 12px;">QUICK INFO</div>', unsafe_allow_html=True)
 
         db_connected = (db_status or {}).get("status") == "connected"
@@ -645,20 +671,39 @@ def render_top_header(db_status: Dict[str, Any]):
     is_connected = db_status.get("status") == "connected"
     db_html = '<span class="db-live-pill">● PostgreSQL Live</span>' if is_connected else '<span class="db-offline-pill">○ Offline</span>'
 
-    st.markdown(f"""
-    <div class="top-bar">
-        <div class="top-bar-left">
+    user_info = st.session_state.get("user") or {}
+    user_name = user_info.get("name", "Clinical Reviewer")
+    user_role = user_info.get("badge") or user_info.get("role") or "Reviewer"
+    user_initials = user_info.get("initials", "CR")
+    user_color = user_info.get("color", "var(--teal-700)")
+
+    col_h1, col_h2 = st.columns([1, 1])
+    with col_h1:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;height:38px;">
             <span style="font-size:14px;font-weight:700;color:var(--slate-700);letter-spacing:0.02em;">PREAUTH SYSTEM</span>
         </div>
-        <div class="top-bar-right">
-            {db_html}
-            <div class="user-chip">
-                <span>Clinical Reviewer</span>
-                <div class="user-avatar">CR</div>
+        """, unsafe_allow_html=True)
+
+    with col_h2:
+        top_col_a, top_col_b, top_col_c = st.columns([1.5, 2, 1])
+        with top_col_a:
+            st.markdown(f'<div style="margin-top:4px;">{db_html}</div>', unsafe_allow_html=True)
+        with top_col_b:
+            st.markdown(f"""
+            <div class="user-chip" style="margin-top:2px;">
+                <div style="text-align:right;">
+                    <div style="font-size:12px;font-weight:700;color:var(--slate-800);line-height:1.2;">{user_name}</div>
+                    <div style="font-size:10px;color:var(--slate-500);font-weight:600;">{user_role}</div>
+                </div>
+                <div class="user-avatar" style="background:{user_color};">{user_initials}</div>
             </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        with top_col_c:
+            if st.button("Logout", key="top_header_logout_btn", type="secondary"):
+                from src.auth import logout
+                logout()
+
 
 
 # ============================================================
