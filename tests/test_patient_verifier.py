@@ -31,6 +31,8 @@ from src.patient_verifier import (
     deidentify_text,
 )
 
+import app
+
 
 class TestPatientVerifier(unittest.TestCase):
 
@@ -103,6 +105,41 @@ class TestPatientVerifier(unittest.TestCase):
         self.assertEqual(res["status"], "MISMATCH")
         self.assertEqual(res["fields"]["date_of_birth"], "MISMATCH")
         self.assertTrue(any("date of birth does not match" in d.lower() for d in res["discrepancies"]))
+
+    def test_verification_failed_case_builds_without_undefined_state(self):
+        """Mismatch case creation should use the verified identity values and not rely on uninitialized variables."""
+        verification = {
+            "verified": False,
+            "history_identity": {
+                "name": "John Doe",
+                "date_of_birth": "1980-04-15",
+                "patient_id": "ABC123",
+                "gender": "male",
+            },
+            "pa_identity": {
+                "name": "John Doe",
+                "date_of_birth": "1980-04-15",
+                "patient_id": "ABC123",
+                "gender": "male",
+            },
+            "calculated_age": 46,
+            "discrepancies": ["Date of Birth does not match (History: '1980-04-15' vs PA Form: '1981-04-15')"],
+        }
+
+        case = app.build_verification_failed_case(
+            verification,
+            type("UploadedFile", (), {"name": "history.pdf"})(),
+            b"%PDF-1.4",
+            12.5,
+            "REQ-123",
+            "PAT-456",
+        )
+
+        self.assertEqual(case["patient"]["patient_name"], "John Doe")
+        self.assertEqual(case["patient"]["patient_id"], "ABC123")
+        self.assertEqual(case["request"]["id"], "REQ-123")
+        self.assertEqual(case["decision"]["decision"], "DOCUMENT VERIFICATION FAILED")
+        self.assertEqual(case["decision"]["failed_criteria"][0], verification["discrepancies"][0])
 
     def test_4_member_id_mismatch(self):
         """History: ABC123. PA: XYZ456 -> MISMATCH"""
