@@ -186,6 +186,70 @@ def back_to_requests_callback():
     st.session_state.active_case = None
 
 
+def build_verification_failed_case(
+    verification: Dict[str, Any],
+    primary_file: Optional[Any],
+    pdf_bytes: bytes,
+    pdf_size_kb: float,
+    db_request_id: Optional[str] = None,
+    db_patient_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Construct a consistent case object when identity verification fails."""
+    norm_hist = verification.get("history_identity") or {}
+    norm_pa = verification.get("pa_identity") or {}
+    patient_name = norm_hist.get("name") or norm_pa.get("name") or "Verified Patient"
+    patient_id_val = (
+        norm_hist.get("patient_id")
+        or norm_hist.get("member_id")
+        or norm_pa.get("member_id")
+        or "PAT-001"
+    )
+    calc_age = verification.get("calculated_age")
+    gender_val = norm_hist.get("gender") or norm_pa.get("gender")
+    file_name = getattr(primary_file, "name", "uploaded_document.pdf") if primary_file is not None else "uploaded_document.pdf"
+
+    return {
+        "patient": {
+            "patient_name": patient_name,
+            "patient_id": patient_id_val,
+            "age": calc_age,
+            "gender": gender_val,
+            "payer": "N/A",
+        },
+        "verification": verification,
+        "request": {
+            "id": db_request_id or "REQ-VERIFICATION-FAILED",
+            "requested_service": "N/A",
+            "cpt_hcpcs_code": "N/A",
+            "payer": "N/A",
+            "status": "DOCUMENT VERIFICATION FAILED",
+            "created_at": datetime.utcnow().isoformat(),
+        },
+        "decision": {
+            "id": None,
+            "policy_id": "N/A",
+            "policy_name": "Identity Verification Check",
+            "decision": "DOCUMENT VERIFICATION FAILED",
+            "reason": "Identity verification between submitted Patient History and PA Request Form failed.",
+            "failed_criteria": verification.get("discrepancies") or ["Document identity mismatch"],
+            "manual_review_reasons": [],
+        },
+        "criteria": [],
+        "prediction": {},
+        "pdf": {
+            "filename": file_name,
+            "bytes": pdf_bytes,
+            "size_str": f"{pdf_size_kb:.1f} KB",
+        },
+        "audit": {
+            "patient_db_id": db_patient_id,
+            "request_id": db_request_id,
+            "decision_id": None,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+    }
+
+
 # ============================================================
 # MAIN APPLICATION WORKFLOW
 # ============================================================
@@ -376,47 +440,15 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         # ── CRITICAL GATE: Hard stop on mismatch ──
         if not verification.get("verified", False):
             st.error("Identity verification failed. Downstream AI processing and policy evaluation have been stopped for patient privacy and security.")
-            
-            mismatch_case = {
-                "patient": {
-                    "patient_name": patient_name,
-                    "patient_id": patient_id_val,
-                    "age": calc_age,
-                    "gender": gender_val,
-                    "payer": "N/A"
-                },
-                "verification": verification,
-                "request": {
-                    "id": db_request_id or "REQ-VERIFICATION-FAILED",
-                    "requested_service": "N/A",
-                    "cpt_hcpcs_code": "N/A",
-                    "payer": "N/A",
-                    "status": "DOCUMENT VERIFICATION FAILED",
-                    "created_at": datetime.utcnow().isoformat()
-                },
-                "decision": {
-                    "id": None,
-                    "policy_id": "N/A",
-                    "policy_name": "Identity Verification Check",
-                    "decision": "DOCUMENT VERIFICATION FAILED",
-                    "reason": "Identity verification between submitted Patient History and PA Request Form failed.",
-                    "failed_criteria": verification.get("discrepancies") or ["Document identity mismatch"],
-                    "manual_review_reasons": []
-                },
-                "criteria": [],
-                "prediction": {},
-                "pdf": {
-                    "filename": primary_file.name,
-                    "bytes": pdf_bytes,
-                    "size_str": f"{pdf_size_kb:.1f} KB"
-                },
-                "audit": {
-                    "patient_db_id": db_patient_id,
-                    "request_id": db_request_id,
-                    "decision_id": None,
-                    "created_at": datetime.utcnow().isoformat()
-                }
-            }
+
+            mismatch_case = build_verification_failed_case(
+                verification,
+                primary_file,
+                pdf_bytes,
+                pdf_size_kb,
+                db_request_id,
+                db_patient_id,
+            )
 
             if db_request_id:
                 try:
