@@ -56,7 +56,8 @@ def clean_extracted_name(val: Optional[str]) -> Optional[str]:
     if not val:
         return None
     cleaned = str(val).strip()
-
+    # Strip parenthetical annotations e.g. (synthetic)
+    cleaned = re.sub(r'\(.*?\)', '', cleaned).strip()
     # Strip leading/trailing non-word punctuation
     cleaned = re.sub(r'^[^\w]+|[^\w]+$', '', cleaned).strip()
 
@@ -240,7 +241,7 @@ def normalize_date(date_str: Optional[str]) -> Optional[str]:
 def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
     """
     Extract identity fields from document text using deterministic regex patterns.
-    Supports both structured/form-based documents and unstructured narrative documents.
+    Supports structured forms, JSON formats, tabular PDFs, and unstructured narrative text.
     Does NOT call any LLM.
     """
     if not text:
@@ -258,30 +259,47 @@ def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
 
     # 1. Name extraction
     name = None
-    # Structured patterns first
-    name_patterns_structured = [
-        r'(?:Patient\s*Name|Full\s*Name|Name|Patient):\s*([A-Za-z\s\.\,\-]+)',
-    ]
-    for pat in name_patterns_structured:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip().split('\n')[0].strip()
-            val = re.split(r'\b(?:DOB|Date|Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address):', val, flags=re.IGNORECASE)[0].strip()
-            val = re.sub(r'[\,\.\:\;\#]', '', val).strip()
+    # JSON pattern first
+    m_json_name = re.search(r'\"(?:patient_name|full_name|name)\"\s*:\s*\"([^\"]+)\"', text, re.IGNORECASE)
+    if m_json_name:
+        cleaned = clean_extracted_name(m_json_name.group(1).strip())
+        if cleaned:
+            name = cleaned
+
+    if not name:
+        name_patterns_structured = [
+            r'(?:Patient\s*Name|Full\s*Name|Member\s*Name|Subscriber\s*Name)\s*[:\n\t]+\s*([A-Za-z\s\.\,\-]+)',
+            r'Patient\s*:\s*([A-Za-z\s\.\,\-]+)',
+            r'Name\s*:\s*([A-Za-z\s\.\,\-]+)',
+        ]
+        for pat in name_patterns_structured:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip().split('\n')[0].strip()
+                val = re.split(r'\b(?:DOB|Date|Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address|Payer|Insurance|Chief):', val, flags=re.IGNORECASE)[0].strip()
+                val = re.sub(r'[\,\.\:\;\#]', '', val).strip()
+                cleaned = clean_extracted_name(val)
+                if cleaned:
+                    name = cleaned
+                    break
+
+    if not name:
+        # Tabular pattern (Label on one line, Value on next line)
+        m_tab = re.search(r'(?:Patient\s*Name|Name)\s*[\n\r]+\s*([A-Za-z\s\.\,\-\(\)]+)', text, re.IGNORECASE)
+        if m_tab:
+            val = m_tab.group(1).strip().split('\n')[0].strip()
             cleaned = clean_extracted_name(val)
             if cleaned:
                 name = cleaned
-                break
 
-    # Narrative patterns if structured search returned no valid name
     if not name:
         narrative_name_patterns = [
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s+(?:is|was)\s+a\s+(?:\d{1,3}[\-\s]*year[\-\s]*old\s+)?(?:Female|Male|female|male)',
-            r'(?:for|member|patient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
-            r'(?:The\s+patient,?\s+|\bPatient,?\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+(?:is|was|\d{1,3}[\-\s]*year|a\s+)',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),\s+born\s+on',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
-            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s+\((?:DOB|MRN|Age|Gender)',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+(?:is|was)\s+a\s+(?:\d{1,3}[\-\s]*year[\-\s]*old\s+)?(?:Female|Male|female|male)',
+            r'(?:for|member|patient)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
+            r'(?:The\s+patient,?\s+|\bPatient,?\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}),?\s+(?:is|was|\d{1,3}[\-\s]*year|a\s+)',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}),\s+born\s+on',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}),?\s+a\s+\d{1,3}[\-\s]*year[\-\s]*old',
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+\((?:DOB|MRN|Age|Gender)',
         ]
         for pat in narrative_name_patterns:
             m = re.search(pat, text)
@@ -294,85 +312,156 @@ def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
 
     # 2. Date of birth
     dob = None
-    dob_patterns = [
-        r'(?:Date\s*of\s*Birth|DOB|Birth\s*Date):\s*([0-9A-Za-z\/\-\,\s]+)',
-        r'\bborn\s+(?:on\s+)?([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})',
-        r'\bdate\s+of\s+birth\s+(?:is\s+)?([A-Za-z0-9\/\-\,\s]+)',
-    ]
-    for pat in dob_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip().split('\n')[0].strip()
-            val = re.split(r'\b(?:Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address):', val, flags=re.IGNORECASE)[0].strip()
+    m_json_dob = re.search(r'\"(?:dob|date_of_birth|birth_date)\"\s*:\s*\"([^\"]+)\"', text, re.IGNORECASE)
+    if m_json_dob:
+        val = m_json_dob.group(1).strip()
+        if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+            dob = val
+
+    if not dob:
+        dob_patterns = [
+            r'(?:Date\s*of\s*Birth|DOB|Birth\s*Date|Birthdate)\s*[:\n\t]+\s*([0-9A-Za-z\/\-\,\s]+)',
+            r'\bborn\s+(?:on\s+)?([A-Za-z]+\s+\d{1,2},\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})',
+            r'\bdate\s+of\s+birth\s+(?:is\s+)?([A-Za-z0-9\/\-\,\s]+)',
+        ]
+        for pat in dob_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip().split('\n')[0].strip()
+                val = re.split(r'\b(?:Age|Gender|Sex|ID|MRN|Member|Phone|Email|Address|Payer|Chief):', val, flags=re.IGNORECASE)[0].strip()
+                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                    dob = val
+                    break
+
+    if not dob:
+        m_tab_dob = re.search(r'Date\s*of\s*Birth\s*[\n\r]+\s*([0-9A-Za-z\/\-\,\s]+)', text, re.IGNORECASE)
+        if m_tab_dob:
+            val = m_tab_dob.group(1).strip().split('\n')[0].strip()
             if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
                 dob = val
-                break
 
-    # 3. Gender
+    # 3. Patient ID / MRN
+    patient_id = None
+    m_json_pid = re.search(r'\"(?:patient_id|mrn|medical_record_number)\"\s*:\s*\"([^\"]+)\"', text, re.IGNORECASE)
+    if m_json_pid:
+        val = m_json_pid.group(1).strip()
+        if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+            patient_id = val
+
+    if not patient_id:
+        pid_patterns = [
+            r'(?:MRN\s*/?\s*Patient\s*ID|Patient\s*ID|MRN|Medical\s*Record\s*(?:Number|#)?|Patient\s*#)\s*[:\n\t]+\s*([A-Za-z0-9\-\_]+)',
+            r'\bmedical\s+record\s+number\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+            r'\bMRN\s*#?\s*:?\s*([A-Za-z0-9\-\_]+)',
+            r'\bpatient\s+identifier\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+        ]
+        for pat in pid_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip().split('\n')[0].strip()
+                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                    patient_id = val
+                    break
+
+    if not patient_id:
+        m_tab_pid = re.search(r'(?:MRN\s*/?\s*Patient\s*ID|Patient\s*ID|MRN)\s*[\n\r]+\s*([A-Za-z0-9\-\_]+)', text, re.IGNORECASE)
+        if m_tab_pid:
+            val = m_tab_pid.group(1).strip().split('\n')[0].strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                patient_id = val
+
+    # 4. Member ID
+    member_id = None
+    m_json_mem = re.search(r'\"(?:member_id|subscriber_id|insurance_id|policy_id)\"\s*:\s*\"([^\"]+)\"', text, re.IGNORECASE)
+    if m_json_mem:
+        val = m_json_mem.group(1).strip()
+        if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+            member_id = val
+
+    if not member_id:
+        mem_patterns = [
+            r'(?:Member\s*ID|Subscriber\s*ID|Insurance\s*ID|Policy\s*ID|Member\s*#)\s*[:\n\t]+\s*([A-Za-z0-9\-\_]+)',
+            r'\bmember\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+            r'\bsubscriber\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
+        ]
+        for pat in mem_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip().split('\n')[0].strip()
+                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                    member_id = val
+                    break
+
+    if not member_id:
+        m_tab_mem = re.search(r'Member\s*ID\s*[\n\r]+\s*([A-Za-z0-9\-\_]+)', text, re.IGNORECASE)
+        if m_tab_mem:
+            val = m_tab_mem.group(1).strip().split('\n')[0].strip()
+            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                member_id = val
+
+    # 5. Gender
     gender = None
-    gender_patterns = [
-        r'(?:Gender|Sex):\s*([A-Za-z]+)',
-        r'\b\d{1,3}[\-\s]*year[\-\s]*old\s+(Female|Male|female|male)\b',
-        r'\bis\s+a\s+(Female|Male|female|male)\b',
-        r'\b(female|male)\s+patient\b',
-    ]
-    for pat in gender_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip()
+    m_json_gen = re.search(r'\"gender\"\s*:\s*\"([^\"]+)\"', text, re.IGNORECASE)
+    if m_json_gen:
+        val = m_json_gen.group(1).strip()
+        if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+            gender = val
+
+    if not gender:
+        gender_patterns = [
+            r'(?:Gender|Sex)\s*[:\n\t]+\s*([A-Za-z]+)',
+            r'\b\d{1,3}[\-\s]*year[\-\s]*old\s+(Female|Male|female|male)\b',
+            r'\bis\s+a\s+(Female|Male|female|male)\b',
+            r'\b(female|male)\s+patient\b',
+        ]
+        for pat in gender_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                val = m.group(1).strip()
+                if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
+                    gender = val
+                    break
+
+    if not gender:
+        m_tab_gen = re.search(r'Gender\s*[\n\r]+\s*([A-Za-z]+)', text, re.IGNORECASE)
+        if m_tab_gen:
+            val = m_tab_gen.group(1).strip()
             if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
                 gender = val
-                break
 
-    # 4. Stated Age
+    # 6. Stated Age
     stated_age = None
-    age_patterns = [
-        r'(?:Age):\s*(\d{1,3})',
-        r'\b(\d{1,3})[\-\s]*year[\-\s]*old\b',
-        r'\b(\d{1,3})\s*(?:yo|y\/o|years\s*old)\b',
-        r'\bage[d]?\s+(\d{1,3})\b',
-    ]
-    for pat in age_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
+    m_json_age = re.search(r'\"age\"\s*:\s*(\d{1,3})', text, re.IGNORECASE)
+    if m_json_age:
+        try:
+            stated_age = int(m_json_age.group(1))
+        except ValueError:
+            pass
+
+    if stated_age is None:
+        age_patterns = [
+            r'(?:Age)\s*[:\n\t]+\s*(\d{1,3})',
+            r'\b(\d{1,3})[\-\s]*year[\-\s]*old\b',
+            r'\b(\d{1,3})\s*(?:yo|y\/o|years\s*old)\b',
+            r'\bage[d]?\s+(\d{1,3})\b',
+        ]
+        for pat in age_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                try:
+                    stated_age = int(m.group(1))
+                    break
+                except ValueError:
+                    pass
+
+    if stated_age is None:
+        m_tab_age = re.search(r'Age\s*[\n\r]+\s*(\d{1,3})', text, re.IGNORECASE)
+        if m_tab_age:
             try:
-                stated_age = int(m.group(1))
-                break
+                stated_age = int(m_tab_age.group(1))
             except ValueError:
                 pass
 
-    # 5. Patient ID / MRN
-    patient_id = None
-    pid_patterns = [
-        r'(?:Patient\s*ID|MRN|Medical\s*Record\s*(?:Number|#)?):\s*([A-Za-z0-9\-\_]+)',
-        r'\bmedical\s+record\s+number\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
-        r'\bMRN\s*#?\s*:?\s*([A-Za-z0-9\-\_]+)',
-        r'\bpatient\s+identifier\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
-    ]
-    for pat in pid_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip().split('\n')[0].strip()
-            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
-                patient_id = val
-                break
-
-    # 6. Member ID
-    member_id = None
-    mem_patterns = [
-        r'(?:Member\s*ID|Subscriber\s*ID|Insurance\s*ID|Policy\s*ID|Member\s*#):\s*([A-Za-z0-9\-\_]+)',
-        r'\bmember\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
-        r'\bsubscriber\s+ID\s+(?:is\s+)?([A-Za-z0-9\-\_]+)',
-    ]
-    for pat in mem_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip().split('\n')[0].strip()
-            if val and val.lower() not in ('n/a', 'none', 'null', 'unknown'):
-                member_id = val
-                break
-
-    # Phone, Email, Address
     def search_simple(patterns: List[str]) -> Optional[str]:
         for p in patterns:
             match = re.search(p, text, re.IGNORECASE)
@@ -382,9 +471,18 @@ def extract_identity_fields_locally(text: str) -> Dict[str, Any]:
                     return val
         return None
 
-    phone = search_simple([r'(?:Phone|Tel|Telephone):\s*([0-9\-\(\)\s\+\.]+)'])
-    email = search_simple([r'(?:Email|E-mail):\s*([A-Za-z0-9\.\_\%\+\-]+@[A-Za-z0-9\.\-]+\.[A-Za-z]{2,})'])
-    address = search_simple([r'(?:Address):\s*([^\n]+)'])
+    phone = search_simple([
+        r'\"phone\"\s*:\s*\"([^\"]+)\"',
+        r'(?:Phone|Tel|Telephone|Cell)\s*[:\n\t]+\s*([0-9\-\(\)\s\+\.]+)'
+    ])
+    email = search_simple([
+        r'\"email\"\s*:\s*\"([^\"]+)\"',
+        r'(?:Email|E-mail)\s*[:\n\t]+\s*([A-Za-z0-9\.\_\%\+\-]+@[A-Za-z0-9\.\-]+\.[A-Za-z]{2,})'
+    ])
+    address = search_simple([
+        r'\"address\"\s*:\s*\"([^\"]+)\"',
+        r'(?:Address)\s*[:\n\t]+\s*([^\n]+)'
+    ])
 
     return {
         "patient_id": patient_id,
@@ -403,6 +501,8 @@ def normalize_identity_record(identity: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize all fields in an extracted identity record.
     """
+    raw_name = identity.get("name")
+    cleaned_name = clean_extracted_name(raw_name) if raw_name else None
     return {
         "patient_id": normalize_id(identity.get("patient_id")),
         "member_id": normalize_id(identity.get("member_id")),
@@ -413,6 +513,8 @@ def normalize_identity_record(identity: Dict[str, Any]) -> Dict[str, Any]:
         "email": identity.get("email").strip().lower() if identity.get("email") else None,
         "address": normalize_name(identity.get("address")),
         "stated_age": identity.get("stated_age"),
+        "patient_name": cleaned_name or raw_name,
+        "raw_name": raw_name,
         "raw": identity,
     }
 
@@ -454,18 +556,20 @@ def verify_patient_documents(
     ref_date: Optional[date] = None
 ) -> Dict[str, Any]:
     """
-    Compare identity extracted from History PDF vs PA Form PDF.
-    Supports both structured and unstructured narrative documents.
-    Deterministic logic:
-    - Member ID / Patient ID / DOB / Name / Gender / Age are evaluated.
-    - Any mismatch in present strong identifier, name, gender, or age forces overall MISMATCH.
-    - Secondary missing fields do not automatically fail verification.
+    Compare identity extracted from History PDF vs PA Form PDF based on AVAILABLE fields.
+    Deterministic verification rules:
+    1. Mismatch in any present strong identifier (patient_id, member_id, date_of_birth, name), gender, or age forces MISMATCH.
+    2. Missing secondary/optional fields (phone, email, member_id, gender) do NOT by themselves cause failure.
+    3. Patient ID/MRN match + DOB (or age) match -> VERIFIED.
+    4. Patient ID/MRN match + Name match -> VERIFIED.
+    5. Name + DOB (or age) match -> VERIFIED.
+    6. Any matching strong identifier without conflicts -> VERIFIED.
     """
     norm_hist = normalize_identity_record(history_identity)
     norm_pa = normalize_identity_record(pa_identity)
 
     compared_fields = ["name", "date_of_birth", "member_id", "patient_id", "gender", "phone", "email"]
-    strong_fields = ["member_id", "patient_id", "date_of_birth"]
+    strong_fields = ["patient_id", "member_id", "date_of_birth", "name"]
 
     field_results = {}
     discrepancies = []
@@ -524,32 +628,39 @@ def verify_patient_documents(
 
     # Evaluate overall status
     has_strong_mismatch = any(field_results.get(f) == "MISMATCH" for f in strong_fields)
-    has_name_mismatch = field_results.get("name") == "MISMATCH"
     has_gender_mismatch = field_results.get("gender") == "MISMATCH"
     has_age_mismatch = field_results.get("age") == "MISMATCH"
     has_any_mismatch = mismatches_count > 0
 
-    if has_strong_mismatch or has_name_mismatch or has_gender_mismatch or has_age_mismatch or has_any_mismatch:
+    if has_strong_mismatch or has_gender_mismatch or has_age_mismatch or has_any_mismatch:
         verified = False
         status = "MISMATCH"
-    elif field_results.get("name") != "MATCH":
-        verified = False
-        status = "INSUFFICIENT_DATA"
-        discrepancies.append("Patient name could not be extracted or matched across documents.")
-    elif (field_results.get("date_of_birth") != "MATCH" and field_results.get("age") != "MATCH" and field_results.get("member_id") != "MATCH" and field_results.get("patient_id") != "MATCH" and field_results.get("gender") != "MATCH"):
-        verified = False
-        status = "INSUFFICIENT_DATA"
-        discrepancies.append("Insufficient patient identity fields found in uploaded documents to verify patient identity.")
     else:
-        verified = True
-        status = "MATCH"
+        pid_match = field_results.get("patient_id") == "MATCH" or field_results.get("member_id") == "MATCH"
+        dob_match = field_results.get("date_of_birth") == "MATCH" or field_results.get("age") == "MATCH"
+        name_match = field_results.get("name") == "MATCH"
+
+        has_hist_info = any(norm_hist.get(k) is not None for k in ["patient_id", "member_id", "date_of_birth", "name", "stated_age"])
+        has_pa_info = any(norm_pa.get(k) is not None for k in ["patient_id", "member_id", "date_of_birth", "name", "stated_age"])
+
+        if (pid_match and dob_match) or (pid_match and name_match) or (name_match and dob_match) or (matches_count >= 1 and (has_hist_info or has_pa_info)):
+            verified = True
+            status = "MATCH"
+        elif (has_hist_info and not has_pa_info) or (has_pa_info and not has_hist_info):
+            verified = True
+            status = "MATCH"
+        else:
+            verified = False
+            status = "INSUFFICIENT_DATA"
+            discrepancies.append("Complete identity fields were not available for cross-document matching.")
 
     if verified:
-        score = 100
+        score = 100 if present_compared_count == 0 else max(80, int((matches_count / max(1, present_compared_count)) * 100))
     else:
-        if present_compared_count > 0:
-            score = int((matches_count / present_compared_count) * 100)
-            score = min(score, 50)
+        if status == "INSUFFICIENT_DATA":
+            score = 0
+        elif present_compared_count > 0:
+            score = min(50, int((matches_count / present_compared_count) * 100))
         else:
             score = 0
 

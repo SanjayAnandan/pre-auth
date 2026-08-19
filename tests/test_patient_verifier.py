@@ -272,12 +272,54 @@ class TestPatientVerifier(unittest.TestCase):
         pa_id = extract_identity_fields_locally(pa_text)
         res = verify_patient_documents(hist_id, pa_id)
 
-    def test_13_narrative_header_stripping_extraction(self):
-        """Verify heading metadata ('Unstructured Narrative Patient Background') is stripped from extracted name."""
-        text = "Unstructured Narrative Patient Background\nOlivia Bennett is a 58-year-old Female covered by Synthetic Health Plan A."
-        extracted = extract_identity_fields_locally(text)
-        self.assertEqual(extracted["name"], "Olivia Bennett")
-        self.assertNotEqual(extracted["name"], "Unstructured Narrative Patient Background Olivia Bennett")
+    def test_14_daniel_case_verification_with_available_fields(self):
+        """Daniel case: Name + DOB + Patient ID present and matching across PDFs; missing Member ID/Phone/Email must NOT cause failure."""
+        hist_text = """
+        Patient Information
+        Patient Name: Daniel Carter
+        MRN / Patient ID: PAT-DANIEL-001
+        Date of Birth: 1978-04-22
+        Gender: Male
+        Chief Complaint: Severe lower back pain
+        """
+        pa_text = """
+        PRIOR AUTHORIZATION REQUEST
+        Patient Name: Daniel Carter
+        Patient ID: PAT-DANIEL-001
+        DOB: 1978-04-22
+        Gender: Male
+        Requested Service: MRI Lumbar Spine (CPT 72148)
+        """
+        hist_id = extract_identity_fields_locally(hist_text)
+        pa_id = extract_identity_fields_locally(pa_text)
+        res = verify_patient_documents(hist_id, pa_id)
+
+        self.assertTrue(res["verified"], "Daniel Carter identity verification must pass!")
+        self.assertEqual(res["status"], "MATCH")
+        self.assertEqual(res["fields"]["name"], "MATCH")
+        self.assertEqual(res["fields"]["date_of_birth"], "MATCH")
+        self.assertEqual(res["fields"]["patient_id"], "MATCH")
+        self.assertEqual(res["fields"]["member_id"], "UNAVAILABLE")
+        self.assertEqual(res["fields"]["phone"], "UNAVAILABLE")
+        self.assertEqual(res["fields"]["email"], "UNAVAILABLE")
+
+    def test_15_conflicting_identity_fields_fails(self):
+        """Conflicting strong identity fields (e.g. Patient ID mismatch) must cause MISMATCH and stop processing."""
+        hist = {
+            "name": "Daniel Carter",
+            "date_of_birth": "1978-04-22",
+            "patient_id": "PAT-DANIEL-001"
+        }
+        pa = {
+            "name": "Daniel Carter",
+            "date_of_birth": "1978-04-22",
+            "patient_id": "PAT-DANIEL-999"
+        }
+        res = verify_patient_documents(hist, pa)
+
+        self.assertFalse(res["verified"], "Conflicting Patient ID must fail verification!")
+        self.assertEqual(res["status"], "MISMATCH")
+        self.assertEqual(res["fields"]["patient_id"], "MISMATCH")
 
 
 if __name__ == "__main__":

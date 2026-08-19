@@ -589,37 +589,25 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             except Exception as update_err:
                 logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
-        # ── 1. PATIENT INSURANCE / COVERAGE VALIDATION ──
-        req_date_str = datetime.utcnow().strftime("%Y-%m-%d")
-        db_ins_records = get_patient_insurance(db_patient_id or patient.get("patient_id"))
-        cov_validation = validate_patient_coverage(patient, insurance_records=db_ins_records, request_date=req_date_str)
-
-        # Render compact Patient Insurance Validation card
-        render_processing_insurance_validation(cov_validation)
-
+        # ── POLICY RETRIEVAL & DETERMINISTIC EVALUATION ──
         policies = load_policies(POLICY_PATH)
         no_pa_codes = load_no_prior_auth(NO_PA_PATH)
 
-        if not cov_validation.get("is_valid"):
-            st.info(f"Step 3/5 — Patient insurance validation completed: {cov_validation.get('status')}. Automated policy evaluation stopped — Manual Review required.", icon="ℹ️")
-            result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
+        matching_pols = find_matching_policies(patient, policies)
+        cand_pol = select_policy_deterministically(patient, matching_pols) if matching_pols else None
+
+        if cand_pol:
+            render_processing_policy_validation(cand_pol)
+
+        raw_pol_stat = cand_pol.get("policy_status") if isinstance(cand_pol, dict) else None
+        is_active_pol = (raw_pol_stat is not None) and (str(raw_pol_stat).strip().lower() == "active")
+
+        if is_active_pol:
+            with st.spinner("Evaluating coverage rules & medical policy determination..."):
+                result = process_decision(patient, policies, no_pa_codes)
         else:
-            # Patient Insurance is VALID -> Proceed to Policy Retrieval & Policy Active Status Check
-            matching_pols = find_matching_policies(patient, policies)
-            cand_pol = select_policy_deterministically(patient, matching_pols) if matching_pols else None
-
-            if cand_pol:
-                render_processing_policy_validation(cand_pol)
-
-            raw_pol_stat = cand_pol.get("policy_status") if isinstance(cand_pol, dict) else None
-            is_active_pol = (raw_pol_stat is not None) and (str(raw_pol_stat).strip().lower() == "active")
-
-            if is_active_pol:
-                with st.spinner("Step 5/5 — Evaluating coverage rules & medical policy determination..."):
-                    result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
-            else:
-                st.info("Step 4/5 — Policy validation completed: INACTIVE. Rule evaluation not performed — Manual Review required.", icon="ℹ️")
-                result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
+            st.info("Policy validation completed: INACTIVE. Rule evaluation not performed — Manual Review required.", icon="ℹ️")
+            result = process_decision(patient, policies, no_pa_codes)
 
         # Persist Final Decision & Criteria to Supabase
         db_decision_id = None
@@ -640,8 +628,8 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         case_obj = {
             "patient": patient,
             "verification": verification,
-            "insurance": result.get("insurance") or cov_validation.get("insurance"),
-            "coverage_validation": cov_validation,
+            "insurance": result.get("insurance") or patient.get("insurance"),
+            "coverage_validation": None,
             "policy": result.get("policy"),
             "request": {
                 "id": db_request_id,

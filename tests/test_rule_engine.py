@@ -718,20 +718,12 @@ class TestPatientInsuranceValidation(unittest.TestCase):
         self.assertFalse(res["is_valid"])
         self.assertEqual(res["status"], "EXPIRED")
 
-        dec = process_decision(pat, [self.policy_active], [], request_date="2026-08-19")
-        self.assertEqual(dec["decision"], "MANUAL REVIEW")
-        self.assertIn("EXPIRED", str(dec["coverage_validation"]["status"]).upper())
-
     def test_3_future_coverage(self):
         """Fixture C: Emily Carter / PAT-TEST-003 -> FUTURE coverage (2027-01-01 -> 2027-12-31)."""
         pat = {"patient_id": "PAT-TEST-003", "patient_name": "Emily Carter", "member_id": "MEM-TEST-003", "cpt_hcpcs_code": "72148"}
         res = validate_patient_coverage(pat, request_date="2026-08-19")
         self.assertFalse(res["is_valid"])
         self.assertEqual(res["status"], "FUTURE")
-
-        dec = process_decision(pat, [self.policy_active], [], request_date="2026-08-19")
-        self.assertEqual(dec["decision"], "MANUAL REVIEW")
-        self.assertEqual(dec["results"], [])
 
     def test_4_open_ended_coverage(self):
         """Coverage with no end date (NULL) is valid if request_date >= start_date."""
@@ -769,44 +761,36 @@ class TestPatientInsuranceValidation(unittest.TestCase):
         self.assertTrue(res["is_valid"])
 
     def test_8_no_insurance_record_found(self):
-        """When no insurance record exists for patient, coverage validation fails and returns MANUAL REVIEW."""
+        """When no insurance record exists for patient, coverage validation returns NO_COVERAGE_FOUND."""
         pat = {"patient_id": "NO_INSURANCE_PATIENT", "_no_insurance": True, "cpt_hcpcs_code": "72148"}
         res = validate_patient_coverage(pat, insurance_records=[], request_date="2026-08-19")
         self.assertFalse(res["is_valid"])
         self.assertEqual(res["status"], "NO_COVERAGE_FOUND")
 
-        dec = process_decision(pat, [self.policy_active], [], insurance_records=[], request_date="2026-08-19")
-        self.assertEqual(dec["decision"], "MANUAL REVIEW")
-
     def test_9_inactive_insurance_status(self):
-        """Explicitly terminated or inactive insurance status is rejected."""
+        """Explicitly terminated or inactive insurance status is rejected by validate_patient_coverage."""
         recs = [{"insurance_number": "INS-TERM", "patient_id": "PAT-TERM", "coverage_start_date": "2024-01-01", "coverage_end_date": "2028-12-31", "status": "TERMINATED"}]
         res = validate_patient_coverage({"patient_id": "PAT-TERM"}, insurance_records=recs, request_date="2026-08-19")
         self.assertFalse(res["is_valid"])
         self.assertEqual(res["status"], "TERMINATED")
 
-    def test_10_active_coverage_plus_inactive_policy(self):
-        """Active patient coverage + inactive policy definition halts at policy status check (MANUAL REVIEW)."""
-        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+    def test_10_inactive_policy_status_gate(self):
+        """Inactive policy definition halts at policy status check (MANUAL REVIEW)."""
         pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50"}
-        dec = process_decision(pat, [self.policy_inactive], [], insurance_records=recs, request_date="2026-08-19")
+        dec = process_decision(pat, [self.policy_inactive], [])
         self.assertEqual(dec["decision"], "MANUAL REVIEW")
-        self.assertTrue(dec["coverage_validation"]["is_valid"])
         self.assertIn("inactive", dec["reason"].lower())
 
-    def test_11_active_coverage_plus_active_policy(self):
-        """Active patient coverage + active policy definition proceeds to rule engine."""
-        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+    def test_11_active_policy_proceeds_to_rule_engine(self):
+        """Active policy definition proceeds directly to rule engine and evaluates decision."""
         pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50", "age": 35}
-        dec = process_decision(pat, [self.policy_active], [], insurance_records=recs, request_date="2026-08-19")
+        dec = process_decision(pat, [self.policy_active], [])
         self.assertEqual(dec["decision"], "APPROVED")
-        self.assertTrue(dec["coverage_validation"]["is_valid"])
 
     def test_12_correct_policy_id_propagation(self):
         """Verify that evaluated policy_id and policy_name propagate into decision output."""
-        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
         pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50", "age": 35}
-        dec = process_decision(pat, [self.policy_active], [], insurance_records=recs, request_date="2026-08-19")
+        dec = process_decision(pat, [self.policy_active], [])
         self.assertEqual(dec.get("policy_id"), self.policy_active["policy_id"])
         self.assertEqual(dec.get("policy_name"), self.policy_active["policy_name"])
         self.assertIsNotNone(dec.get("policy"))

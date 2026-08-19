@@ -102,49 +102,6 @@ Reason: Requested service is present in no-prior-authorization list.
         }
 
     # ========================================================
-    # STEP 1.5 — PATIENT INSURANCE / COVERAGE VALIDATION
-    # ========================================================
-
-    cov_val = validate_patient_coverage(patient, insurance_records=insurance_records, request_date=request_date)
-
-    if not cov_val.get("is_valid"):
-        cov_stat = cov_val.get("status", "EXPIRED")
-        reason_msg = cov_val.get("reason", f"Patient insurance coverage is {cov_stat}.")
-
-        trace_msg = f"""
-========================================
-AUTHORIZATION EVALUATION TRACE
-========================================
-Document Hash: {doc_hash}
-CPT/HCPCS: {raw_code}
-Patient: {patient.get('patient_name')} ({patient.get('patient_id')})
-Insurance Validation: {cov_stat}
-Evaluation: NOT PERFORMED
-Reason: {reason_msg}
-Determination: MANUAL REVIEW
-========================================
-"""
-        logger.info(trace_msg)
-        print(trace_msg)
-
-        return {
-            "document_hash": doc_hash,
-            "decision": "MANUAL REVIEW",
-            "patient_id": patient.get("patient_id"),
-            "requested_service": patient.get("requested_service"),
-            "code": raw_code,
-            "insurance": cov_val.get("insurance"),
-            "coverage_validation": cov_val,
-            "normalized_patient": patient,
-            "reason": reason_msg,
-            "criteria": [],
-            "results": [],
-            "failed_criteria": [],
-            "manual_review_reasons": [reason_msg],
-            "evaluation_trace": trace_msg,
-        }
-
-    # ========================================================
     # STEP 2 — FIND APPLICABLE POLICIES
     # ========================================================
 
@@ -170,8 +127,8 @@ Reason: No applicable policy was found for requested service.
             "decision": "MANUAL REVIEW",
             "patient_id": patient.get("patient_id"),
             "code": raw_code,
-            "insurance": cov_val.get("insurance"),
-            "coverage_validation": cov_val,
+            "insurance": patient.get("insurance") or None,
+            "coverage_validation": None,
             "reason": "No applicable policy was found for the requested service.",
             "evaluation_trace": trace_msg,
         }
@@ -227,8 +184,8 @@ Determination: MANUAL REVIEW
             "policy_id": pol_id,
             "policy_name": policy.get("policy_name"),
             "policy": policy,
-            "insurance": cov_val.get("insurance"),
-            "coverage_validation": cov_val,
+            "insurance": patient.get("insurance") or None,
+            "coverage_validation": None,
             "normalized_patient": patient,
             "reason": reason_msg,
             "criteria": [],
@@ -292,8 +249,8 @@ Final Decision:
     result["code"] = normalized_patient.get("cpt_hcpcs_code")
     result["normalized_patient"] = normalized_patient
     result["policy"] = policy
-    result["insurance"] = cov_val.get("insurance")
-    result["coverage_validation"] = cov_val
+    result["insurance"] = patient.get("insurance") or None
+    result["coverage_validation"] = None
     result["evaluation_trace"] = trace_msg
 
     return result
