@@ -22,6 +22,8 @@ from src.patient_parser import parse_patient, validate_patient, merge_patient_da
 from src.normalizer import normalize_patient
 from src.policy_matcher import load_policies, find_matching_policies
 from src.decision import load_no_prior_auth, process_decision, select_policy_deterministically
+from src.patient_insurance import validate_patient_coverage
+from src.auth import init_auth_session, render_login_page, logout
 from src.patient_verifier import (
     extract_identity_fields_locally,
     verify_patient_documents,
@@ -44,6 +46,7 @@ from src.database import (
     save_document_metadata,
     save_identity_verification,
     save_clinical_facts,
+    get_patient_insurance,
 )
 from src.ui import (
     apply_custom_styles,
@@ -59,6 +62,7 @@ from src.ui import (
     render_intake_stage_tracker,
     render_verification_status,
     render_processing_policy_validation,
+    render_processing_insurance_validation,
     format_iso_timestamp,
     safe_str,
     safe_title,
@@ -295,6 +299,13 @@ def handle_resubmission_callback(case_data: Dict[str, Any], uploaded_pdfs):
 # ============================================================
 
 def main():
+    # 0. Initialize Auth Session & Application Gating
+    init_auth_session()
+
+    if not st.session_state.get("authenticated", False):
+        render_login_page()
+        return
+
     # 1. Fetch DB Status & History Records
     db_status = check_database_status()
     try:
@@ -449,8 +460,10 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             st.error("Please upload at least one clinical document PDF.")
             return
 
+        uploaded_files = [f for f in (history_file, pa_file) if f is not None]
+
         # Use primary uploaded file as main reference if only one provided
-        primary_file = pa_file if pa_file is not None else history_file
+        primary_file = uploaded_files[0]
         history_ref = history_file if history_file is not None else pa_file
         pa_ref = pa_file if pa_file is not None else history_file
 
@@ -465,6 +478,10 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         if not history_text.strip() and not pa_text.strip():
             st.error("The uploaded PDF documents do not contain extractable text. Please ensure valid PDFs are uploaded.")
             return
+
+        # Compute deterministic SHA-256 document hash from uploaded document text
+        from src.patient_parser import compute_document_hash
+        doc_hash = compute_document_hash(f"{history_text}\n\n{pa_text}")
 
         # Step 2: Extract identity fields locally & run deterministic verification
         with st.spinner("Step 2/5 Verifying patient identity deterministically (Local PII Engine)..."):
@@ -494,6 +511,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             "age": calc_age,
             "gender": gender_val,
             "payer": "Pending Evaluation",
+            "_document_hash": doc_hash,
         }
 
         db_patient_id = None
@@ -514,8 +532,8 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                     hist_status = "VERIFIED" if verification.get("verified") else "MISMATCH"
                     pa_status = "VERIFIED" if verification.get("verified") else "MISMATCH"
                     save_document_metadata(db_request_id, "Patient History", primary_file.name, hist_status, pdf_bytes=pdf_bytes)
-                    if len(pdf_files) > 1:
-                        save_document_metadata(db_request_id, "PA Request Form", pdf_files[1].name, pa_status)
+                    if len(uploaded_files) > 1:
+                        save_document_metadata(db_request_id, "PA Request Form", uploaded_files[1].name, pa_status)
                     save_identity_verification(db_request_id, verification)
             except Exception as db_err:
                 logger.warning(f"Database PII pre-persistence skipped: {db_err}")
@@ -539,9 +557,10 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             if patient.get("age") is None and calc_age is not None:
                 patient["age"] = calc_age
 
-            # Restore verified patient identity fields for local display & DB record update
+            # Restore verified patient identity fields and document hash
             patient["patient_name"] = patient_name
             patient["patient_id"] = patient_id_val
+            patient["_document_hash"] = doc_hash
 
         # ── CRITICAL: Stop immediately if CPT code is missing ──
         cpt_value = patient.get("cpt_hcpcs_code")
@@ -557,7 +576,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             )
             return
 
-        # Step 5: Normalize clinical coding standards & evaluate rules
+        # Step 5: Patient Insurance Validation, Policy Retrieval & Deterministic Evaluation
         patient = normalize_patient(patient)
         validation = validate_patient(patient)
 
@@ -570,25 +589,37 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             except Exception as update_err:
                 logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
-        # Policy Retrieval, Active Status Check & Deterministic Rule Engine Evaluation
+        # ── 1. PATIENT INSURANCE / COVERAGE VALIDATION ──
+        req_date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        db_ins_records = get_patient_insurance(db_patient_id or patient.get("patient_id"))
+        cov_validation = validate_patient_coverage(patient, insurance_records=db_ins_records, request_date=req_date_str)
+
+        # Render compact Patient Insurance Validation card
+        render_processing_insurance_validation(cov_validation)
+
         policies = load_policies(POLICY_PATH)
         no_pa_codes = load_no_prior_auth(NO_PA_PATH)
 
-        matching_pols = find_matching_policies(patient, policies)
-        cand_pol = select_policy_deterministically(patient, matching_pols) if matching_pols else None
-
-        if cand_pol:
-            render_processing_policy_validation(cand_pol)
-
-        raw_pol_stat = cand_pol.get("policy_status") if isinstance(cand_pol, dict) else None
-        is_active_pol = (raw_pol_stat is not None) and (str(raw_pol_stat).strip().lower() == "active")
-
-        if is_active_pol:
-            with st.spinner("Step 5/5 — Evaluating coverage rules & medical policy determination..."):
-                result = process_decision(patient, policies, no_pa_codes)
+        if not cov_validation.get("is_valid"):
+            st.info(f"Step 3/5 — Patient insurance validation completed: {cov_validation.get('status')}. Automated policy evaluation stopped — Manual Review required.", icon="ℹ️")
+            result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
         else:
-            st.info("Step 4/5 — Policy validation completed: INACTIVE. Rule evaluation not performed — Manual Review required.", icon="ℹ️")
-            result = process_decision(patient, policies, no_pa_codes)
+            # Patient Insurance is VALID -> Proceed to Policy Retrieval & Policy Active Status Check
+            matching_pols = find_matching_policies(patient, policies)
+            cand_pol = select_policy_deterministically(patient, matching_pols) if matching_pols else None
+
+            if cand_pol:
+                render_processing_policy_validation(cand_pol)
+
+            raw_pol_stat = cand_pol.get("policy_status") if isinstance(cand_pol, dict) else None
+            is_active_pol = (raw_pol_stat is not None) and (str(raw_pol_stat).strip().lower() == "active")
+
+            if is_active_pol:
+                with st.spinner("Step 5/5 — Evaluating coverage rules & medical policy determination..."):
+                    result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
+            else:
+                st.info("Step 4/5 — Policy validation completed: INACTIVE. Rule evaluation not performed — Manual Review required.", icon="ℹ️")
+                result = process_decision(patient, policies, no_pa_codes, insurance_records=db_ins_records, request_date=req_date_str)
 
         # Persist Final Decision & Criteria to Supabase
         db_decision_id = None
@@ -609,6 +640,8 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
         case_obj = {
             "patient": patient,
             "verification": verification,
+            "insurance": result.get("insurance") or cov_validation.get("insurance"),
+            "coverage_validation": cov_validation,
             "policy": result.get("policy"),
             "request": {
                 "id": db_request_id,

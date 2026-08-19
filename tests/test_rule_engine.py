@@ -600,7 +600,19 @@ class TestPolicyActiveStatusGate(unittest.TestCase):
                 "functional_impairment": True,
                 "physical_examination": ["Sensory reduction L5", "Motor strength 5/5"],
                 "xray": {"findings": ["Disc space narrowing"]}
-            }
+            },
+            "insurance": [{
+                "id": "ins-active-gate-001",
+                "insurance_number": "INS-ACTIVE-GATE",
+                "patient_id": "MRN-ACTIVE-TEST",
+                "patient_name": "Active Gate Test Patient",
+                "policy_id": "POL-TEST-001",
+                "coverage_start_date": "2024-01-01",
+                "coverage_end_date": "2026-12-31",
+                "status": "ACTIVE",
+                "payer_name": "Synthetic Health Plan A",
+                "plan_name": "Gold HMO"
+            }]
         }
         self.policy_template = {
             "policy_id": "POL-TEST-001",
@@ -655,6 +667,164 @@ class TestPolicyActiveStatusGate(unittest.TestCase):
         self.assertEqual(res["decision"], "MANUAL REVIEW")
         self.assertIn("inactive", res["reason"].lower())
         self.assertIn("cannot be used for authorization evaluation", res["reason"])
+
+
+from src.patient_insurance import validate_patient_coverage
+
+
+class TestPatientInsuranceValidation(unittest.TestCase):
+    """
+    Test suite for Patient Insurance / Coverage Validation.
+    """
+
+    def setUp(self):
+        self.policy_active = {
+            "policy_id": "POL-TEST-INS",
+            "policy_name": "Test Active Policy",
+            "policy_status": "active",
+            "cpt_hcpcs_codes": ["72148"],
+            "covered_diagnoses": ["Low back pain"],
+            "icd10_codes": ["M54.50"],
+            "criteria": [
+                {
+                    "id": "C1",
+                    "criterion": "Age Requirement",
+                    "type": "MIN_AGE",
+                    "value": 18,
+                    "unit": "years"
+                }
+            ]
+        }
+        self.policy_inactive = dict(self.policy_active, policy_status="inactive")
+        self.patient_base = {
+            "patient_id": "PAT-TEST-001",
+            "patient_name": "Maria Rodriguez",
+            "cpt_hcpcs_code": "72148",
+            "diagnosis": "Low back pain",
+            "icd10_code": "M54.50",
+            "age": 35
+        }
+
+    def test_1_active_coverage(self):
+        """Fixture A: Maria Rodriguez / PAT-TEST-001 -> ACTIVE coverage (2024-01-01 -> 2026-12-31)."""
+        res = validate_patient_coverage(self.patient_base, request_date="2026-08-19")
+        self.assertTrue(res["is_valid"])
+        self.assertEqual(res["status"], "ACTIVE")
+
+    def test_2_expired_coverage(self):
+        """Fixture B: Kevin Thompson / PAT-TEST-002 -> EXPIRED coverage (2022-01-01 -> 2023-12-31)."""
+        pat = {"patient_id": "PAT-TEST-002", "patient_name": "Kevin Thompson", "member_id": "MEM-TEST-002", "cpt_hcpcs_code": "72148"}
+        res = validate_patient_coverage(pat, request_date="2026-08-19")
+        self.assertFalse(res["is_valid"])
+        self.assertEqual(res["status"], "EXPIRED")
+
+        dec = process_decision(pat, [self.policy_active], [], request_date="2026-08-19")
+        self.assertEqual(dec["decision"], "MANUAL REVIEW")
+        self.assertIn("EXPIRED", str(dec["coverage_validation"]["status"]).upper())
+
+    def test_3_future_coverage(self):
+        """Fixture C: Emily Carter / PAT-TEST-003 -> FUTURE coverage (2027-01-01 -> 2027-12-31)."""
+        pat = {"patient_id": "PAT-TEST-003", "patient_name": "Emily Carter", "member_id": "MEM-TEST-003", "cpt_hcpcs_code": "72148"}
+        res = validate_patient_coverage(pat, request_date="2026-08-19")
+        self.assertFalse(res["is_valid"])
+        self.assertEqual(res["status"], "FUTURE")
+
+        dec = process_decision(pat, [self.policy_active], [], request_date="2026-08-19")
+        self.assertEqual(dec["decision"], "MANUAL REVIEW")
+        self.assertEqual(dec["results"], [])
+
+    def test_4_open_ended_coverage(self):
+        """Coverage with no end date (NULL) is valid if request_date >= start_date."""
+        recs = [{
+            "insurance_number": "INS-OPEN",
+            "patient_id": "PAT-OPEN",
+            "coverage_start_date": "2024-01-01",
+            "coverage_end_date": None,
+            "status": "ACTIVE"
+        }]
+        res = validate_patient_coverage({"patient_id": "PAT-OPEN"}, insurance_records=recs, request_date="2026-08-19")
+        self.assertTrue(res["is_valid"])
+        self.assertEqual(res["status"], "ACTIVE")
+
+    def test_5_multiple_insurance_records_same_patient(self):
+        """Patient with one expired record and one active record selects the active record."""
+        recs = [
+            {"insurance_number": "INS-OLD", "patient_id": "PAT-MULTI", "coverage_start_date": "2020-01-01", "coverage_end_date": "2022-12-31", "status": "EXPIRED"},
+            {"insurance_number": "INS-CURR", "patient_id": "PAT-MULTI", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}
+        ]
+        res = validate_patient_coverage({"patient_id": "PAT-MULTI"}, insurance_records=recs, request_date="2026-08-19")
+        self.assertTrue(res["is_valid"])
+        self.assertEqual(res["insurance"]["insurance_number"], "INS-CURR")
+
+    def test_6_boundary_start_date_equals_request_date(self):
+        """PA request date exactly equal to coverage_start_date is ACTIVE."""
+        recs = [{"insurance_number": "INS-START", "patient_id": "PAT-BND", "coverage_start_date": "2026-08-19", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+        res = validate_patient_coverage({"patient_id": "PAT-BND"}, insurance_records=recs, request_date="2026-08-19")
+        self.assertTrue(res["is_valid"])
+
+    def test_7_boundary_end_date_equals_request_date(self):
+        """PA request date exactly equal to coverage_end_date is ACTIVE."""
+        recs = [{"insurance_number": "INS-END", "patient_id": "PAT-BND2", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-08-19", "status": "ACTIVE"}]
+        res = validate_patient_coverage({"patient_id": "PAT-BND2"}, insurance_records=recs, request_date="2026-08-19")
+        self.assertTrue(res["is_valid"])
+
+    def test_8_no_insurance_record_found(self):
+        """When no insurance record exists for patient, coverage validation fails and returns MANUAL REVIEW."""
+        pat = {"patient_id": "NO_INSURANCE_PATIENT", "_no_insurance": True, "cpt_hcpcs_code": "72148"}
+        res = validate_patient_coverage(pat, insurance_records=[], request_date="2026-08-19")
+        self.assertFalse(res["is_valid"])
+        self.assertEqual(res["status"], "NO_COVERAGE_FOUND")
+
+        dec = process_decision(pat, [self.policy_active], [], insurance_records=[], request_date="2026-08-19")
+        self.assertEqual(dec["decision"], "MANUAL REVIEW")
+
+    def test_9_inactive_insurance_status(self):
+        """Explicitly terminated or inactive insurance status is rejected."""
+        recs = [{"insurance_number": "INS-TERM", "patient_id": "PAT-TERM", "coverage_start_date": "2024-01-01", "coverage_end_date": "2028-12-31", "status": "TERMINATED"}]
+        res = validate_patient_coverage({"patient_id": "PAT-TERM"}, insurance_records=recs, request_date="2026-08-19")
+        self.assertFalse(res["is_valid"])
+        self.assertEqual(res["status"], "TERMINATED")
+
+    def test_10_active_coverage_plus_inactive_policy(self):
+        """Active patient coverage + inactive policy definition halts at policy status check (MANUAL REVIEW)."""
+        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+        pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50"}
+        dec = process_decision(pat, [self.policy_inactive], [], insurance_records=recs, request_date="2026-08-19")
+        self.assertEqual(dec["decision"], "MANUAL REVIEW")
+        self.assertTrue(dec["coverage_validation"]["is_valid"])
+        self.assertIn("inactive", dec["reason"].lower())
+
+    def test_11_active_coverage_plus_active_policy(self):
+        """Active patient coverage + active policy definition proceeds to rule engine."""
+        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+        pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50", "age": 35}
+        dec = process_decision(pat, [self.policy_active], [], insurance_records=recs, request_date="2026-08-19")
+        self.assertEqual(dec["decision"], "APPROVED")
+        self.assertTrue(dec["coverage_validation"]["is_valid"])
+
+    def test_12_correct_policy_id_propagation(self):
+        """Verify that evaluated policy_id and policy_name propagate into decision output."""
+        recs = [{"insurance_number": "INS-VALID", "patient_id": "PAT-VALID", "coverage_start_date": "2024-01-01", "coverage_end_date": "2026-12-31", "status": "ACTIVE"}]
+        pat = {"patient_id": "PAT-VALID", "patient_name": "Valid Patient", "cpt_hcpcs_code": "72148", "diagnosis": "Low back pain", "icd10_code": "M54.50", "age": 35}
+        dec = process_decision(pat, [self.policy_active], [], insurance_records=recs, request_date="2026-08-19")
+        self.assertEqual(dec.get("policy_id"), self.policy_active["policy_id"])
+        self.assertEqual(dec.get("policy_name"), self.policy_active["policy_name"])
+        self.assertIsNotNone(dec.get("policy"))
+
+    def test_13_correct_decision_persistence(self):
+        """Verify decision saving helper persists decision, policy_id, and failed criteria."""
+        from src.database import save_decision, create_authorization_request_record
+        req_rec = create_authorization_request_record(None, {"requested_service": "MRI Lumbar Spine"})
+        req_id = req_rec.get("id")
+        dec_data = {
+            "policy_id": "POL-002",
+            "policy_name": "Lumbar Spine MRI Policy",
+            "decision": "APPROVED",
+            "failed_criteria": [],
+            "manual_review_reasons": []
+        }
+        dec_id = save_decision(req_id, dec_data)
+        self.assertIsNotNone(dec_id)
 
 
 if __name__ == "__main__":

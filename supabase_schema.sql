@@ -115,16 +115,16 @@ CREATE INDEX IF NOT EXISTS idx_documents_request_id ON documents(request_id);
 -- TABLE 4: identity_verifications
 -- Purpose: Audit log of local deterministic patient document verification
 -- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS identity_verifications (
+CREATE TABLE IF NOT EXISTS public.identity_verifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    request_id UUID REFERENCES authorization_requests(id) ON DELETE CASCADE,
+    request_id UUID REFERENCES public.authorization_requests(id) ON DELETE CASCADE,
     identity_status TEXT NOT NULL,
     verified_fields JSONB DEFAULT '{}'::jsonb,
     mismatch_fields JSONB DEFAULT '{}'::jsonb,
     verified_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_id_verifications_request_id ON identity_verifications(request_id);
+CREATE INDEX IF NOT EXISTS idx_id_verifications_request_id ON public.identity_verifications(request_id);
 
 -- ------------------------------------------------------------------------------
 -- TABLE 5: clinical_facts
@@ -201,14 +201,86 @@ CREATE TABLE IF NOT EXISTS predictions (
 );
 
 -- ------------------------------------------------------------------------------
+-- TABLE: patient_insurance
+-- Purpose: Store patient insurance/coverage enrollments and validity periods
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS patient_insurance (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    insurance_number TEXT UNIQUE,
+    patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    member_id TEXT,
+    policy_id TEXT,
+    coverage_start_date DATE NOT NULL,
+    coverage_end_date DATE,
+    status TEXT DEFAULT 'ACTIVE',
+    payer_name TEXT,
+    plan_name TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_patient_insurance_patient_id ON patient_insurance(patient_id);
+CREATE INDEX IF NOT EXISTS idx_patient_insurance_number ON patient_insurance(insurance_number);
+CREATE INDEX IF NOT EXISTS idx_patient_insurance_dates ON patient_insurance(coverage_start_date, coverage_end_date);
+
+-- ------------------------------------------------------------------------------
+-- TABLE: user_profiles
+-- Purpose: Store clinical user profiles linked to Supabase Auth user UUID (auth_id)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    auth_id UUID UNIQUE,
+    email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE NOT NULL,
+    full_name TEXT NOT NULL,
+    clinical_role TEXT NOT NULL,
+    department TEXT,
+    initials TEXT,
+    badge_label TEXT,
+    color_hex TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Schema migration helpers for existing table instances
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS auth_id UUID UNIQUE;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS clinical_role TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS badge_label TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS color_hex TEXT;
+ALTER TABLE user_profiles ALTER COLUMN password DROP NOT NULL;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS identity_verification_status TEXT DEFAULT 'PENDING';
+ALTER TABLE clinical_facts ADD COLUMN IF NOT EXISTS clinical_information JSONB DEFAULT '{}'::jsonb;
+
+-- Migration for identity_verifications table if missing
+CREATE TABLE IF NOT EXISTS public.identity_verifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_id UUID REFERENCES public.authorization_requests(id) ON DELETE CASCADE,
+    identity_status TEXT NOT NULL,
+    verified_fields JSONB DEFAULT '{}'::jsonb,
+    mismatch_fields JSONB DEFAULT '{}'::jsonb,
+    verified_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_auth_id ON user_profiles(auth_id);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_username ON user_profiles(username);
+CREATE INDEX IF NOT EXISTS idx_id_verifications_request_id ON public.identity_verifications(request_id);
+
+-- ------------------------------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS) CONFIGURATION
 -- Disable RLS for application service role access
 -- ------------------------------------------------------------------------------
 ALTER TABLE patients DISABLE ROW LEVEL SECURITY;
 ALTER TABLE authorization_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
-ALTER TABLE identity_verifications DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.identity_verifications DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clinical_facts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE decisions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE decision_criteria DISABLE ROW LEVEL SECURITY;
 ALTER TABLE predictions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE patient_insurance DISABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles DISABLE ROW LEVEL SECURITY;
+
+-- Reload PostgREST schema cache
+NOTIFY pgrst, 'reload schema';

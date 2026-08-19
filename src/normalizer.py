@@ -1081,6 +1081,9 @@ POLICY CANONICAL VOCABULARY
     )
 
 
+    if patient.get("_document_hash"):
+        normalized["_document_hash"] = patient.get("_document_hash")
+
     # ========================================================
     # RETURN
     # ========================================================

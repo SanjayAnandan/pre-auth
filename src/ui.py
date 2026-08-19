@@ -686,7 +686,19 @@ def render_top_header(db_status: Dict[str, Any]):
         </style>
         """, unsafe_allow_html=True)
 
-    col_srch, col_right = st.columns([4.8, 3.2])
+    user_info = st.session_state.get("user") or {
+        "name": "Alex Vance, RN",
+        "role": "Senior Clinical Reviewer",
+        "initials": "AV",
+        "color": "#0f766e"
+    }
+
+    user_name = user_info.get("name", "User")
+    user_role = user_info.get("role") or user_info.get("badge") or "Clinical Reviewer"
+    user_initials = user_info.get("initials", "CR")
+    user_color = user_info.get("color", "#0f766e")
+
+    col_srch, col_right = st.columns([4.2, 3.8])
 
     with col_srch:
         st.text_input(
@@ -697,15 +709,20 @@ def render_top_header(db_status: Dict[str, Any]):
         )
 
     with col_right:
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;justify-content:flex-end;gap:16px;height:38px;">
-            {db_html}
-            <div class="user-chip">
-                <span>Clinical Reviewer</span>
-                <div class="user-avatar">CR</div>
+        col_db, col_user, col_logout = st.columns([1.5, 2.5, 1.2])
+        with col_db:
+            st.markdown(f'<div style="display:flex;align-items:center;height:38px;">{db_html}</div>', unsafe_allow_html=True)
+        with col_user:
+            st.markdown(f"""
+            <div class="user-chip" title="{user_name} ({user_role})">
+                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;font-weight:600;font-size:12px;">{user_name}</span>
+                <div class="user-avatar" style="background:{user_color};">{user_initials}</div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        with col_logout:
+            from src.auth import logout
+            if st.button("Logout", key="top_bar_logout_btn", use_container_width=True):
+                logout()
 
 
 # ============================================================
@@ -1494,6 +1511,20 @@ def _render_timeline(case_data):
     pol_id = safe_str(case_data.get("decision",{}).get("policy_id") or "POL-001")
     resubmitted = case_data.get("resubmitted") or req.get("resubmitted") or False
 
+    # Check Patient Insurance Validation State
+    cov_val = case_data.get("coverage_validation") or case_data.get("decision", {}).get("coverage_validation") or {}
+    ins_info = case_data.get("insurance") or case_data.get("decision", {}).get("insurance") or {}
+
+    is_valid_cov = cov_val.get("is_valid")
+    if is_valid_cov is None:
+        if ins_info and "is_valid" in ins_info:
+            is_valid_cov = ins_info.get("is_valid")
+        else:
+            dec_reason = str(case_data.get("decision", {}).get("reason", "")).lower()
+            is_valid_cov = not any(w in dec_reason for w in ["insurance coverage", "coverage expired", "does not have valid coverage"])
+
+    cov_stat_text = str(cov_val.get("status") or ins_info.get("coverage_status") or ("ACTIVE" if is_valid_cov else "EXPIRED")).upper()
+
     pol_obj = case_data.get("policy") or case_data.get("decision", {}).get("policy") or {}
     raw_status = pol_obj.get("policy_status") if isinstance(pol_obj, dict) else None
     if not raw_status:
@@ -1505,24 +1536,32 @@ def _render_timeline(case_data):
 
     is_active_pol = str(raw_status).strip().lower() == "active"
 
-    if is_active_pol:
-        status_badge_html = '<span style="color:var(--green-700);font-weight:700;">🟢 ACTIVE</span>'
-        eval_step_html = '<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Deterministic Rule Engine</div></div></div>'
-    else:
-        status_badge_html = '<span style="color:var(--red-700);font-weight:700;">🔴 INACTIVE</span>'
-        eval_step_html = '<div class="timeline-step"><div class="timeline-dot" style="background:var(--red-500);"></div><div class="timeline-content"><div class="timeline-title">⛔ Rule Evaluation</div><div class="timeline-time" style="color:var(--red-700);font-weight:600;">NOT PERFORMED (Policy is inactive)</div></div></div>'
-
     steps = [
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📄 Document Received</div><div class="timeline-time">{dt}</div></div></div>',
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">👤 Patient Data Extracted</div><div class="timeline-time">DB: {pid[:12]}...</div></div></div>',
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🔒 Patient Identity Verified</div><div class="timeline-time">PII Isolation Engine</div></div></div>',
-        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📋 Policy Matched</div><div class="timeline-time">Policy: {pol_id}</div></div></div>',
-        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🛡️ Policy Status Checked</div><div class="timeline-time">Status: {status_badge_html}</div></div></div>',
-        eval_step_html,
-        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Decision Recorded · Req: {rid[:12]}...</div></div></div>'
     ]
 
-    if resubmitted and is_active_pol:
+    if is_valid_cov:
+        steps.append(f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🛡️ Patient Insurance Checked</div><div class="timeline-time">Status: <span style="color:var(--green-700);font-weight:700;">🟢 ACTIVE</span></div></div></div>')
+        steps.append(f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📋 Policy Matched</div><div class="timeline-time">Policy: {pol_id}</div></div></div>')
+
+        if is_active_pol:
+            status_badge_html = '<span style="color:var(--green-700);font-weight:700;">🟢 ACTIVE</span>'
+            eval_step_html = '<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Deterministic Rule Engine</div></div></div>'
+        else:
+            status_badge_html = '<span style="color:var(--red-700);font-weight:700;">🔴 INACTIVE</span>'
+            eval_step_html = '<div class="timeline-step"><div class="timeline-dot" style="background:var(--red-500);"></div><div class="timeline-content"><div class="timeline-title">⛔ Rule Evaluation</div><div class="timeline-time" style="color:var(--red-700);font-weight:600;">NOT PERFORMED (Policy is inactive)</div></div></div>'
+
+        steps.append(f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🛡️ Policy Status Checked</div><div class="timeline-time">Status: {status_badge_html}</div></div></div>')
+        steps.append(eval_step_html)
+    else:
+        steps.append(f'<div class="timeline-step"><div class="timeline-dot" style="background:var(--red-500);"></div><div class="timeline-content"><div class="timeline-title">🛡️ Patient Insurance Checked</div><div class="timeline-time" style="color:var(--red-700);font-weight:600;">Status: 🔴 {cov_stat_text}</div></div></div>')
+        steps.append(f'<div class="timeline-step"><div class="timeline-dot" style="background:var(--red-500);"></div><div class="timeline-content"><div class="timeline-title">⛔ Policy Evaluation</div><div class="timeline-time" style="color:var(--red-700);font-weight:600;">NOT PERFORMED (Patient insurance is {cov_stat_text})</div></div></div>')
+
+    steps.append(f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Decision Recorded · Req: {rid[:12]}...</div></div></div>')
+
+    if resubmitted and is_valid_cov and is_active_pol:
         steps.extend([
             '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">📂 Additional Information Submitted</div><div class="timeline-time">Supplemental Document Received (Existing Request Re-evaluation)</div></div></div>',
             '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Re-evaluated</div><div class="timeline-time">Existing Request Policy Criteria Re-evaluation</div></div></div>',
@@ -1773,6 +1812,47 @@ def render_verification_status(verification: Dict[str, Any]):
 <span>✓ Zero PII passed to LLM</span>
 </div>
 </div>''', unsafe_allow_html=True)
+
+
+def render_processing_insurance_validation(cov_validation: Dict[str, Any]):
+    """
+    Renders a compact, high-precision processing-stage Patient Insurance Validation card during New Request workflow.
+    """
+    if not cov_validation:
+        return
+
+    ins = cov_validation.get("insurance") or {}
+    member_id = ins.get("member_id", "MEM-1005")
+    policy_id = ins.get("policy_id", "POL-001")
+    start_date = ins.get("coverage_start_date", "—")
+    end_date = ins.get("coverage_end_date") or "No End Date"
+    is_valid = cov_validation.get("is_valid", False)
+    status = str(cov_validation.get("status") or "INACTIVE").upper()
+
+    if is_valid:
+        st.markdown(f"""
+        <div style="background:var(--green-50);border:1px solid var(--green-100);border-left:4px solid var(--green-600);border-radius:var(--radius-md);padding:10px 14px;margin:8px 0 12px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <div style="font-size:12px;font-weight:700;color:var(--slate-900);">🛡️ PATIENT INSURANCE VALIDATION · Member ID: <span class="mono-code">{member_id}</span></div>
+                <div style="background:var(--green-100);color:var(--green-700);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid var(--green-100);">🟢 COVERAGE ACTIVE</div>
+            </div>
+            <div style="font-size:11px;color:var(--slate-700);"><strong>Coverage Period:</strong> {start_date} – {end_date} | <strong>Policy:</strong> <span class="mono-code">{policy_id}</span></div>
+            <div style="font-size:11px;color:var(--slate-700);margin-top:2px;">Patient has valid coverage for this authorization request date.</div>
+            <div style="font-size:11px;color:var(--slate-500);margin-top:2px;">→ Continue to Policy Retrieval</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background:var(--red-50);border:1px solid var(--red-100);border-left:4px solid var(--red-600);border-radius:var(--radius-md);padding:10px 14px;margin:8px 0 12px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <div style="font-size:12px;font-weight:700;color:var(--slate-900);">🛡️ PATIENT INSURANCE VALIDATION · Member ID: <span class="mono-code">{member_id}</span></div>
+                <div style="background:var(--red-100);color:var(--red-700);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid var(--red-100);">🔴 COVERAGE {status}</div>
+            </div>
+            <div style="font-size:11px;color:var(--slate-700);"><strong>Coverage Period:</strong> {start_date} – {end_date} | <strong>Policy:</strong> <span class="mono-code">{policy_id}</span></div>
+            <div style="font-size:11px;color:var(--red-700);font-weight:600;margin-top:2px;">Patient does not have valid coverage for the authorization request date.</div>
+            <div style="font-size:11px;color:var(--red-700);margin-top:2px;font-weight:600;">→ Automated policy evaluation stopped. Request will proceed to Manual Review.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def render_processing_policy_validation(policy: Dict[str, Any]):
