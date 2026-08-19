@@ -26,8 +26,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from src.policy_matcher import load_policies
 from src.rule_engine import evaluate_policy, check_documentation, is_documentation_satisfied
 from src.patient_verifier import verify_patient_documents
-
 from src.patient_parser import merge_patient_data
+from src.decision import process_decision
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT_DIR / "data" / "policies.json"
@@ -566,6 +566,95 @@ class TestRuleEngine(unittest.TestCase):
         self.assertEqual(merged_patient.get("patient_id"), "MRN-JAMES-01")
         self.assertTrue(merged_patient.get("documentation", {}).get("Neurological examination"))
         self.assertEqual(case_data.get("audit", {}).get("request_id"), "req-uuid-james-100")
+
+
+class TestPolicyActiveStatusGate(unittest.TestCase):
+
+    def setUp(self):
+        self.patient_base = {
+            "patient_id": "MRN-ACTIVE-TEST",
+            "patient_name": "Active Gate Test Patient",
+            "age": 45,
+            "gender": "male",
+            "payer": "Synthetic Health Plan A",
+            "diagnosis": "Lumbar Radiculopathy",
+            "icd10_code": "M54.16",
+            "severity": "Moderate",
+            "severity_evidence": ["Pain score 6/10"],
+            "previous_treatment": [
+                {"treatment": "Physical Therapy", "duration_days": 56}
+            ],
+            "requested_service": "MRI Lumbar Spine",
+            "cpt_hcpcs_code": "72148",
+            "quantity": 1,
+            "frequency": "Single",
+            "provider_specialty": "Orthopedics",
+            "facility_type": "Outpatient Diagnostic Center",
+            "documentation": {
+                "Clinical notes": True,
+                "Neurological examination": True,
+                "Previous treatment history": True,
+                "Relevant imaging report": True
+            },
+            "clinical_information": {
+                "functional_impairment": True,
+                "physical_examination": ["Sensory reduction L5", "Motor strength 5/5"],
+                "xray": {"findings": ["Disc space narrowing"]}
+            }
+        }
+        self.policy_template = {
+            "policy_id": "POL-TEST-001",
+            "policy_name": "Test MRI Lumbar Spine Policy",
+            "payer": "Synthetic Health Plan A",
+            "service_name": "MRI Lumbar Spine",
+            "cpt_hcpcs_codes": ["72148"],
+            "covered_diagnoses": ["Lumbar Radiculopathy"],
+            "icd10_codes": ["M54.16"],
+            "age_requirement": {"required": True, "minimum_age": 18, "maximum_age": 80},
+            "severity_requirement": {"required": True, "allowed_levels": ["Moderate", "Severe"], "functional_impairment_required": True},
+            "previous_treatment_requirement": {"required": True, "minimum_duration_days": 30, "acceptable_treatments": ["Physical Therapy"]},
+            "provider_specialty_requirement": ["Orthopedics"],
+            "facility_type_requirement": ["Outpatient Diagnostic Center"],
+            "documentation_requirement": ["Clinical notes", "Neurological examination", "Previous treatment history", "Relevant imaging report"]
+        }
+
+    def test_A_active_policy_lowercase(self):
+        """Active policy ('active') proceeds to rule engine and evaluates decision."""
+        pol = dict(self.policy_template, policy_status="active")
+        res = process_decision(self.patient_base, [pol], [])
+        self.assertEqual(res["decision"], "APPROVED")
+        self.assertEqual(res["policy_id"], "POL-TEST-001")
+
+    def test_B_inactive_policy(self):
+        """Inactive policy ('inactive') stops evaluation before rule engine and produces MANUAL REVIEW."""
+        pol = dict(self.policy_template, policy_status="inactive")
+        res = process_decision(self.patient_base, [pol], [])
+        self.assertEqual(res["decision"], "MANUAL REVIEW")
+        self.assertIn("inactive", res["reason"].lower())
+        self.assertIn("cannot be used for authorization evaluation", res["reason"])
+        self.assertEqual(res["results"], [])
+        self.assertEqual(res["criteria"], [])
+
+    def test_C_uppercase_active_status(self):
+        """Uppercase status ('ACTIVE') is treated as active and proceeds to rule engine."""
+        pol = dict(self.policy_template, policy_status="ACTIVE")
+        res = process_decision(self.patient_base, [pol], [])
+        self.assertEqual(res["decision"], "APPROVED")
+
+    def test_D_mixed_case_active_status(self):
+        """Mixed-case status ('Active') is treated as active and proceeds to rule engine."""
+        pol = dict(self.policy_template, policy_status="Active")
+        res = process_decision(self.patient_base, [pol], [])
+        self.assertEqual(res["decision"], "APPROVED")
+
+    def test_E_missing_policy_status(self):
+        """Missing policy_status field is not assumed active and produces MANUAL REVIEW."""
+        pol = dict(self.policy_template)
+        # policy_status field is omitted
+        res = process_decision(self.patient_base, [pol], [])
+        self.assertEqual(res["decision"], "MANUAL REVIEW")
+        self.assertIn("inactive", res["reason"].lower())
+        self.assertIn("cannot be used for authorization evaluation", res["reason"])
 
 
 if __name__ == "__main__":

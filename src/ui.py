@@ -860,6 +860,7 @@ def render_policies_view(policies_data):
         st.button("+ New Policy", type="primary", use_container_width=True, key="btn_new_pol")
 
     total = len(policies_data)
+    active_count = sum(1 for p in policies_data if str(p.get("policy_status", "")).strip().lower() == "active")
     payers = {}
     for p in policies_data:
         pyr = str(p.get("payer","")).lower()
@@ -882,7 +883,7 @@ def render_policies_view(policies_data):
             <div class="metric-body">
                 <div class="metric-label">Total Policies</div>
                 <div class="metric-value">{total}</div>
-                <div class="metric-sub" style="color:var(--teal-600);">Active policies</div>
+                <div class="metric-sub" style="color:var(--teal-600);">{active_count} Active policies</div>
             </div>
         </div>
         <div class="metric-card">
@@ -921,7 +922,7 @@ def render_policies_view(policies_data):
     with col_pf2:
         st.selectbox("Plan", ["All Plans"], label_visibility="collapsed", key="pol_plan")
     with col_pf3:
-        st.selectbox("Status", ["● Active","Inactive","All"], label_visibility="collapsed", key="pol_status")
+        status_filter = st.selectbox("Status", ["All","● Active","Inactive"], label_visibility="collapsed", key="pol_status")
     with col_pf4:
         st.selectbox("Sort", ["Newest","Oldest","Name A-Z"], label_visibility="collapsed", key="pol_sort")
 
@@ -950,6 +951,8 @@ def render_policies_view(policies_data):
         sname = str(p.get("service_name","")).lower()
         cpt_str = " ".join(p.get("cpt_hcpcs_codes", [])).lower()
         icd_str = " ".join(p.get("icd10_codes", [])).lower()
+        pol_stat = str(p.get("policy_status", "active")).strip().lower()
+        is_active = (pol_stat == "active")
 
         if active_search:
             q = active_search.lower()
@@ -957,6 +960,9 @@ def render_policies_view(policies_data):
                 continue
         if payer_filter == "Commercial" and ("medicare" in pyr or "cms" in pyr): continue
         if payer_filter == "Medicare" and "medicare" not in pyr and "cms" not in pyr: continue
+        if status_filter in ("● Active", "Active") and not is_active: continue
+        if status_filter == "Inactive" and is_active: continue
+
         filtered.append(p)
 
     if not filtered:
@@ -977,12 +983,13 @@ def render_policies_view(policies_data):
         pol_id = p.get("policy_id","POL-000")
         pol_name = p.get("policy_name","Medical Policy")
         payer_name = p.get("payer","Payer")
-        status = p.get("policy_status","active")
+        status = str(p.get("policy_status","active")).strip()
+        is_active = status.lower() == "active"
         pyr_lower = payer_name.lower()
         is_medicare = "medicare" in pyr_lower or "cms" in pyr_lower
         payer_badge_cls = "badge-medicare" if is_medicare else "badge-commercial"
         payer_badge_label = "Medicare" if is_medicare else "Commercial"
-        status_badge = f'<span class="badge badge-active">● Active</span>' if status == "active" else f'<span class="badge badge-inactive">○ Inactive</span>'
+        status_badge = f'<span class="badge badge-active">🟢 ACTIVE</span>' if is_active else f'<span class="badge badge-inactive">🔴 INACTIVE</span>'
 
         with st.expander(f"📄  {pol_id} — {pol_name} ({payer_name})", expanded=False):
             # Top metadata row
@@ -1286,119 +1293,186 @@ def render_case_view(case_data, on_back_callback=None, on_resubmit_callback=None
                     st.markdown(f"**{k.replace('_',' ').title()}:** {v}")
 
     with col_r:
-        # Decision
-        st.markdown('<div class="case-section-title">🎯 Final Determination</div>', unsafe_allow_html=True)
-        reason = decision_info.get("reason","Rule-engine evaluation completed.")
-        failed = decision_info.get("failed_criteria") or []
-        manual = decision_info.get("manual_review_reasons") or []
+        # ── 1. POLICY ACTIVE STATUS CHECK ───────────────────────────
+        pol_obj = case_data.get("policy") or decision_info.get("policy") or {}
+        raw_status = pol_obj.get("policy_status") if isinstance(pol_obj, dict) else None
+        if not raw_status:
+            dec_reason_lower = str(decision_info.get("reason", "")).lower()
+            if "inactive" in dec_reason_lower:
+                raw_status = "inactive"
+            else:
+                raw_status = "active"
+
+        is_active_pol = str(raw_status).strip().lower() == "active"
         pol_name = decision_info.get("policy_name","Medical Policy")
         pol_id = decision_info.get("policy_id","POL-001")
 
-        if final_dec == "APPROVED": bc, ic, dc, hd = "decision-banner-approved","✓","var(--green-700)","All coverage criteria met."
-        elif final_dec == "DENIED": bc, ic, dc, hd = "decision-banner-denied","✕","var(--red-700)", reason or "Criteria not satisfied."
-        elif final_dec in ("MANUAL REVIEW","MANUAL_REVIEW"): bc, ic, dc, hd = "decision-banner-review","⚠","var(--amber-700)", reason or "Clinician review required."
-        else: bc, ic, dc, hd = "decision-banner-no-pa","ℹ","var(--blue-700)","Prior auth not required."
+        manual_review_reveal_key = f"reveal_inactive_manual_review_{req_id}"
+        is_manual_review_revealed = st.session_state.get(manual_review_reveal_key, False)
 
-        fail_html = "".join([f"<li>{f}</li>" for f in failed]) if failed else ""
-        st.markdown(f"""
-        <div class="decision-banner {bc}">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;font-weight:bold;color:{dc};">{ic}</span><span style="font-size:18px;font-weight:700;color:{dc};">{final_dec}</span></div>
-            <div style="font-size:13px;color:var(--slate-800);margin-bottom:10px;">{hd}</div>
-            <div style="font-size:12px;color:var(--slate-600);border-top:1px solid rgba(0,0,0,.06);padding-top:8px;"><strong>Policy:</strong> {pol_name} <span class="mono-code">{pol_id}</span></div>
-            {f"<div style='margin-top:6px;font-size:12px;color:var(--red-700);'><strong>Failed:</strong><ul style='margin:4px 0 0 18px;padding:0;'>{fail_html}</ul></div>" if failed else ""}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="case-section-title">🛡️ Policy Status Check</div>', unsafe_allow_html=True)
 
-        try:
-            report_pdf_bytes = generate_report(case_data)
-            st.download_button(
-                label="📑 Download Official Decision Report (PDF)",
-                data=report_pdf_bytes,
-                file_name=f"Prior_Auth_Decision_Report_{req_id}.pdf",
-                mime="application/pdf",
-                key=f"dl_rep_banner_{req_id}",
-                use_container_width=True
-            )
-        except Exception as e:
-            logger.warning(f"Could not render banner report download button: {e}")
-
-        # ── MANUAL REVIEW WORKFLOW SECTION ─────────────────────────
-        if final_dec in ("MANUAL REVIEW", "MANUAL_REVIEW"):
-            st.markdown('<div class="case-section-title">📂 Additional Information Required</div>', unsafe_allow_html=True)
-
-            missing_items = []
-            if criteria_list:
-                for c in criteria_list:
-                    if str(c.get("status", "")).upper() in ("UNKNOWN", "MISSING"):
-                        missing_items.append((c.get("criterion", "Required Evidence"), c.get("reason", "")))
-            if not missing_items and manual:
-                for m in manual:
-                    missing_items.append(("Required Evidence", m))
-
-            missing_html_list = []
-            for crit_name, item_reason in missing_items:
-                item_str = str(item_reason or crit_name)
-                crit_norm = str(crit_name).lower()
-                if "neuro" in item_str.lower() or "neuro" in crit_norm:
-                    missing_html_list.append(
-                        "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
-                        "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Neurological examination</span><br/>"
-                        "<span style='font-size:12px;color:var(--slate-600);'>Please provide documented neurological examination findings (e.g. sensory, motor strength, reflexes, straight-leg raise findings).</span>"
-                        "</div>"
-                    )
-                elif any(img in item_str.lower() or img in crit_norm for img in ["imaging", "x-ray", "xray", "mri", "ct"]):
-                    missing_html_list.append(
-                        "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
-                        "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Relevant imaging report</span><br/>"
-                        "<span style='font-size:12px;color:var(--slate-600);'>Please provide the relevant X-ray/MRI/CT REPORT or documented imaging findings.</span>"
-                        "</div>"
-                    )
-                else:
-                    missing_html_list.append(
-                        f"<div style='margin-bottom:8px;'><span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ {crit_name}</span><br/><span style='font-size:12px;color:var(--slate-600);'>{item_str}</span></div>"
-                    )
-
-            missing_details_html = "".join(missing_html_list) if missing_html_list else "<div style='font-size:12px;color:var(--amber-700);'>⚠ Required policy evidence was not available in submitted documents.</div>"
-
+        if is_active_pol:
             st.markdown(f"""
-            <div style="background:var(--amber-50);border:1px solid var(--amber-200, #fde68a);border-radius:var(--radius-md);padding:16px;margin-bottom:14px;">
-                <div style="font-size:13px;font-weight:700;color:var(--amber-800);margin-bottom:4px;">ADDITIONAL INFORMATION REQUIRED</div>
-                <div style="font-size:12px;color:var(--slate-700);margin-bottom:12px;">The authorization cannot be automatically approved because the following required evidence was not found:</div>
-                {missing_details_html}
-                <div style="font-size:12px;color:var(--slate-600);font-style:italic;margin-top:8px;">Upload only the clinical document(s) requested above. You do not need to resubmit the original Patient History or Prior Authorization Form.</div>
+            <div style="background:var(--green-50);border:1px solid var(--green-100);border-left:4px solid var(--green-600);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <div style="font-size:13px;font-weight:700;color:var(--slate-900);">Policy: {pol_name} <span class="mono-code">{pol_id}</span></div>
+                    <div style="background:var(--green-100);color:var(--green-700);font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;border:1px solid var(--green-100);">🟢 ACTIVE</div>
+                </div>
+                <div style="font-size:12px;color:var(--slate-700);margin-bottom:4px;"><strong>Evaluation:</strong> <span style="color:var(--green-700);font-weight:700;">PROCEED</span></div>
+                <div style="font-size:12px;color:var(--slate-600);">Policy is active and eligible for authorization evaluation.</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            inactive_reason = f"Policy {pol_id} is currently inactive and cannot be used for authorization evaluation."
+            st.markdown(f"""
+            <div style="background:var(--red-50);border:1px solid var(--red-100);border-left:4px solid var(--red-600);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <div style="font-size:13px;font-weight:700;color:var(--slate-900);">Policy: {pol_name} <span class="mono-code">{pol_id}</span></div>
+                    <div style="background:var(--red-100);color:var(--red-700);font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;border:1px solid var(--red-100);">🔴 INACTIVE</div>
+                </div>
+                <div style="font-size:12px;color:var(--slate-700);margin-bottom:4px;"><strong>Evaluation:</strong> <span style="color:var(--red-700);font-weight:700;">NOT PERFORMED</span></div>
+                <div style="font-size:12px;color:var(--red-700);font-weight:600;">Reason: {inactive_reason}</div>
             </div>
             """, unsafe_allow_html=True)
 
-            st.markdown("<div style='font-weight:700;font-size:13px;color:var(--slate-800);margin-bottom:4px;'>Provide Missing Clinical Evidence</div>", unsafe_allow_html=True)
-            supp_files = st.file_uploader(
-                "Provide Missing Clinical Evidence",
-                type=["pdf"],
-                accept_multiple_files=True,
-                key=f"resubmit_pdf_{req_id}",
-                help="Upload supplemental text-based clinical report PDF(s)"
-            )
-            st.markdown(
-                "<div style='font-size:11px;color:var(--slate-500);margin-top:2px;margin-bottom:10px;'>"
-                "<strong>Examples:</strong> Neurological examination report, X-ray/MRI/CT report, treatment documentation, procedure report."
-                "</div>",
-                unsafe_allow_html=True
-            )
+            if not is_manual_review_revealed:
+                st.markdown(
+                    "<div style='font-size:12px;color:var(--slate-700);margin-bottom:8px;font-weight:600;'>"
+                    "Policy evaluation cannot continue because this policy is inactive. Manual review is required."
+                    "</div>",
+                    unsafe_allow_html=True
+                )
+                if st.button("→ Go to Manual Review", type="primary", use_container_width=True, key=f"btn_goto_manual_{req_id}"):
+                    st.session_state[manual_review_reveal_key] = True
+                    st.rerun()
 
-            if supp_files:
-                if st.button("Submit Additional Information & Re-evaluate →", type="primary", use_container_width=True, key=f"btn_resubmit_{req_id}"):
-                    if on_resubmit_callback:
-                        on_resubmit_callback(case_data, supp_files)
+        # ── RENDER DOWNSTREAM SECTIONS (Only if Active Policy OR User Clicked Go to Manual Review) ──
+        if is_active_pol or is_manual_review_revealed:
+            # ── 2. POLICY EVALUATION CRITERIA ─────────────────────────────
+            st.markdown('<div class="case-section-title">⚙️ Policy Evaluation</div>', unsafe_allow_html=True)
+            if is_active_pol and criteria_list:
+                for c in criteria_list: _render_criterion(c)
+            elif not is_active_pol:
+                st.markdown("""
+                <div style="background:var(--slate-100);border:1px solid var(--slate-200);border-radius:var(--radius-md);padding:12px 16px;font-size:12px;color:var(--slate-600);margin-bottom:14px;">
+                    <strong>⛔ Evaluation Halted:</strong> Individual criteria were not evaluated because the policy is inactive.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.caption("No criteria evaluated.")
 
-        # Criteria
-        st.markdown('<div class="case-section-title">⚙️ Policy Evaluation</div>', unsafe_allow_html=True)
-        if criteria_list:
-            for c in criteria_list: _render_criterion(c)
-        else:
-            st.caption("No criteria evaluated.")
+            # ── 3. FINAL DETERMINATION ────────────────────────────────────
+            st.markdown('<div class="case-section-title">🎯 Final Determination</div>', unsafe_allow_html=True)
+            reason = decision_info.get("reason","Rule-engine evaluation completed.")
+            failed = decision_info.get("failed_criteria") or []
+            manual = decision_info.get("manual_review_reasons") or []
 
-        # Audit
-        st.markdown('<div class="case-section-title">🕘 Audit Timeline</div>', unsafe_allow_html=True)
-        _render_timeline(case_data)
+            if final_dec == "APPROVED":
+                bc, ic, dc, hd = "decision-banner-approved", "✓", "var(--green-700)", "All coverage criteria met."
+            elif final_dec == "DENIED":
+                bc, ic, dc, hd = "decision-banner-denied", "✕", "var(--red-700)", reason or "Criteria not satisfied."
+            elif final_dec in ("MANUAL REVIEW", "MANUAL_REVIEW"):
+                if is_active_pol:
+                    bc, ic, dc, hd = "decision-banner-review", "⚠", "var(--amber-700)", reason or "Clinician review required."
+                else:
+                    bc, ic, dc, hd = "decision-banner-review", "⚠", "var(--amber-700)", "Policy is unavailable for automated evaluation. Clinician review required."
+            else:
+                bc, ic, dc, hd = "decision-banner-no-pa", "ℹ", "var(--blue-700)", "Prior auth not required."
+
+            fail_html = "".join([f"<li>{f}</li>" for f in failed]) if (failed and is_active_pol) else ""
+            st.markdown(f"""
+            <div class="decision-banner {bc}">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;font-weight:bold;color:{dc};">{ic}</span><span style="font-size:18px;font-weight:700;color:{dc};">{final_dec}</span></div>
+                <div style="font-size:13px;color:var(--slate-800);margin-bottom:10px;">{hd}</div>
+                <div style="font-size:12px;color:var(--slate-600);border-top:1px solid rgba(0,0,0,.06);padding-top:8px;"><strong>Policy:</strong> {pol_name} <span class="mono-code">{pol_id}</span></div>
+                {f"<div style='margin-top:6px;font-size:12px;color:var(--red-700);'><strong>Failed:</strong><ul style='margin:4px 0 0 18px;padding:0;'>{fail_html}</ul></div>" if fail_html else ""}
+            </div>
+            """, unsafe_allow_html=True)
+
+            try:
+                report_pdf_bytes = generate_report(case_data)
+                st.download_button(
+                    label="📑 Download Official Decision Report (PDF)",
+                    data=report_pdf_bytes,
+                    file_name=f"Prior_Auth_Decision_Report_{req_id}.pdf",
+                    mime="application/pdf",
+                    key=f"dl_rep_banner_{req_id}",
+                    use_container_width=True
+                )
+            except Exception as e:
+                logger.warning(f"Could not render banner report download button: {e}")
+
+            # ── MANUAL REVIEW WORKFLOW SECTION ───────────────────────
+            if final_dec in ("MANUAL REVIEW", "MANUAL_REVIEW"):
+                st.markdown('<div class="case-section-title">📂 Additional Information Required</div>', unsafe_allow_html=True)
+
+                missing_items = []
+                if criteria_list:
+                    for c in criteria_list:
+                        if str(c.get("status", "")).upper() in ("UNKNOWN", "MISSING"):
+                            missing_items.append((c.get("criterion", "Required Evidence"), c.get("reason", "")))
+                if not missing_items and manual:
+                    for m in manual:
+                        missing_items.append(("Required Evidence", m))
+
+                missing_html_list = []
+                for crit_name, item_reason in missing_items:
+                    item_str = str(item_reason or crit_name)
+                    crit_norm = str(crit_name).lower()
+                    if "neuro" in item_str.lower() or "neuro" in crit_norm:
+                        missing_html_list.append(
+                            "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
+                            "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Neurological examination</span><br/>"
+                            "<span style='font-size:12px;color:var(--slate-600);'>Please provide documented neurological examination findings (e.g. sensory, motor strength, reflexes, straight-leg raise findings).</span>"
+                            "</div>"
+                        )
+                    elif any(img in item_str.lower() or img in crit_norm for img in ["imaging", "x-ray", "xray", "mri", "ct"]):
+                        missing_html_list.append(
+                            "<div style='margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(217,119,6,0.15);'>"
+                            "<span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ Relevant imaging report</span><br/>"
+                            "<span style='font-size:12px;color:var(--slate-600);'>Please provide the relevant X-ray/MRI/CT REPORT or documented imaging findings.</span>"
+                            "</div>"
+                        )
+                    else:
+                        missing_html_list.append(
+                            f"<div style='margin-bottom:8px;'><span style='font-size:13px;font-weight:700;color:var(--amber-700);'>⚠ {crit_name}</span><br/><span style='font-size:12px;color:var(--slate-600);'>{item_str}</span></div>"
+                        )
+
+                missing_details_html = "".join(missing_html_list) if missing_html_list else "<div style='font-size:12px;color:var(--amber-700);'>⚠ Required policy evidence was not available in submitted documents.</div>"
+
+                st.markdown(f"""
+                <div style="background:var(--amber-50);border:1px solid var(--amber-200, #fde68a);border-radius:var(--radius-md);padding:16px;margin-bottom:14px;">
+                    <div style="font-size:13px;font-weight:700;color:var(--amber-800);margin-bottom:4px;">ADDITIONAL INFORMATION REQUIRED</div>
+                    <div style="font-size:12px;color:var(--slate-700);margin-bottom:12px;">The authorization cannot be automatically approved because the following required evidence was not found:</div>
+                    {missing_details_html}
+                    <div style="font-size:12px;color:var(--slate-600);font-style:italic;margin-top:8px;">Upload only the clinical document(s) requested above. You do not need to resubmit the original Patient History or Prior Authorization Form.</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("<div style='font-weight:700;font-size:13px;color:var(--slate-800);margin-bottom:4px;'>Provide Missing Clinical Evidence</div>", unsafe_allow_html=True)
+                supp_files = st.file_uploader(
+                    "Provide Missing Clinical Evidence",
+                    type=["pdf"],
+                    accept_multiple_files=True,
+                    key=f"resubmit_pdf_{req_id}",
+                    help="Upload supplemental text-based clinical report PDF(s)"
+                )
+                st.markdown(
+                    "<div style='font-size:11px;color:var(--slate-500);margin-top:2px;margin-bottom:10px;'>"
+                    "<strong>Examples:</strong> Neurological examination report, X-ray/MRI/CT report, treatment documentation, procedure report."
+                    "</div>",
+                    unsafe_allow_html=True
+                )
+
+                if supp_files:
+                    if st.button("Submit Additional Information & Re-evaluate →", type="primary", use_container_width=True, key=f"btn_resubmit_{req_id}"):
+                        if on_resubmit_callback:
+                            on_resubmit_callback(case_data, supp_files)
+
+            # ── 4. AUDIT TIMELINE ──────────────────────────────────────────
+            st.markdown('<div class="case-section-title">🕘 Audit Timeline</div>', unsafe_allow_html=True)
+            _render_timeline(case_data)
 
 
 # ============================================================
@@ -1434,16 +1508,35 @@ def _render_timeline(case_data):
     pol_id = safe_str(case_data.get("decision",{}).get("policy_id") or "POL-001")
     resubmitted = case_data.get("resubmitted") or req.get("resubmitted") or False
 
+    pol_obj = case_data.get("policy") or case_data.get("decision", {}).get("policy") or {}
+    raw_status = pol_obj.get("policy_status") if isinstance(pol_obj, dict) else None
+    if not raw_status:
+        dec_reason_lower = str(case_data.get("decision", {}).get("reason", "")).lower()
+        if "inactive" in dec_reason_lower:
+            raw_status = "inactive"
+        else:
+            raw_status = "active"
+
+    is_active_pol = str(raw_status).strip().lower() == "active"
+
+    if is_active_pol:
+        status_badge_html = '<span style="color:var(--green-700);font-weight:700;">🟢 ACTIVE</span>'
+        eval_step_html = '<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Deterministic Rule Engine</div></div></div>'
+    else:
+        status_badge_html = '<span style="color:var(--red-700);font-weight:700;">🔴 INACTIVE</span>'
+        eval_step_html = '<div class="timeline-step"><div class="timeline-dot" style="background:var(--red-500);"></div><div class="timeline-content"><div class="timeline-title">⛔ Rule Evaluation</div><div class="timeline-time" style="color:var(--red-700);font-weight:600;">NOT PERFORMED (Policy is inactive)</div></div></div>'
+
     steps = [
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📄 Document Received</div><div class="timeline-time">{dt}</div></div></div>',
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">👤 Patient Data Extracted</div><div class="timeline-time">DB: {pid[:12]}...</div></div></div>',
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🔒 Patient Identity Verified</div><div class="timeline-time">PII Isolation Engine</div></div></div>',
         f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">📋 Policy Matched</div><div class="timeline-time">Policy: {pol_id}</div></div></div>',
-        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Criteria Evaluated</div><div class="timeline-time">Deterministic Rule Engine</div></div></div>',
-        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Initial Decision Recorded · Req: {rid[:12]}...</div></div></div>'
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🛡️ Policy Status Checked</div><div class="timeline-time">Status: {status_badge_html}</div></div></div>',
+        eval_step_html,
+        f'<div class="timeline-step"><div class="timeline-dot"></div><div class="timeline-content"><div class="timeline-title">🎯 Decision Recorded</div><div class="timeline-time">Decision Recorded · Req: {rid[:12]}...</div></div></div>'
     ]
 
-    if resubmitted:
+    if resubmitted and is_active_pol:
         steps.extend([
             '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">📂 Additional Information Submitted</div><div class="timeline-time">Supplemental Document Received (Existing Request Re-evaluation)</div></div></div>',
             '<div class="timeline-step"><div class="timeline-dot" style="background:var(--blue-600);"></div><div class="timeline-content"><div class="timeline-title">⚙️ Policy Re-evaluated</div><div class="timeline-time">Existing Request Policy Criteria Re-evaluation</div></div></div>',
@@ -1694,4 +1787,40 @@ def render_verification_status(verification: Dict[str, Any]):
 <span>✓ Zero PII passed to LLM</span>
 </div>
 </div>''', unsafe_allow_html=True)
+
+
+def render_processing_policy_validation(policy: Dict[str, Any]):
+    """
+    Renders a compact, high-precision processing-stage Policy Validation card during New Request workflow.
+    """
+    if not policy:
+        return
+
+    pol_id = policy.get("policy_id", "POL-001")
+    pol_name = policy.get("policy_name", "Medical Coverage Policy")
+    raw_status = policy.get("policy_status")
+    is_active = (raw_status is not None) and (str(raw_status).strip().lower() == "active")
+
+    if is_active:
+        st.markdown(f"""
+        <div style="background:var(--green-50);border:1px solid var(--green-100);border-left:4px solid var(--green-600);border-radius:var(--radius-md);padding:10px 14px;margin:8px 0 12px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <div style="font-size:12px;font-weight:700;color:var(--slate-900);">🛡️ POLICY VALIDATION · {pol_name} <span class="mono-code">{pol_id}</span></div>
+                <div style="background:var(--green-100);color:var(--green-700);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid var(--green-100);">🟢 ACTIVE</div>
+            </div>
+            <div style="font-size:11px;color:var(--slate-700);"><strong>Evaluation:</strong> <span style="color:var(--green-700);font-weight:700;">PROCEED</span> — Policy is active and eligible for authorization evaluation.</div>
+            <div style="font-size:11px;color:var(--slate-500);margin-top:2px;">→ Proceeding to Rule Engine...</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background:var(--red-50);border:1px solid var(--red-100);border-left:4px solid var(--red-600);border-radius:var(--radius-md);padding:10px 14px;margin:8px 0 12px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <div style="font-size:12px;font-weight:700;color:var(--slate-900);">🛡️ POLICY VALIDATION · {pol_name} <span class="mono-code">{pol_id}</span></div>
+                <div style="background:var(--red-100);color:var(--red-700);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid var(--red-100);">🔴 INACTIVE</div>
+            </div>
+            <div style="font-size:11px;color:var(--slate-700);"><strong>Evaluation:</strong> <span style="color:var(--red-700);font-weight:700;">NOT PERFORMED</span> — Policy is currently inactive and cannot be used for authorization evaluation.</div>
+            <div style="font-size:11px;color:var(--red-700);margin-top:2px;font-weight:600;">→ Rule evaluation halted. Request will proceed to Manual Review.</div>
+        </div>
+        """, unsafe_allow_html=True)
 

@@ -20,8 +20,8 @@ import streamlit as st
 from src.pdf_extractor import extract_text_from_pdf
 from src.patient_parser import parse_patient, validate_patient, merge_patient_data
 from src.normalizer import normalize_patient
-from src.policy_matcher import load_policies
-from src.decision import load_no_prior_auth, process_decision
+from src.policy_matcher import load_policies, find_matching_policies
+from src.decision import load_no_prior_auth, process_decision, select_policy_deterministically
 from src.patient_verifier import (
     extract_identity_fields_locally,
     verify_patient_documents,
@@ -58,6 +58,7 @@ from src.ui import (
     render_error_state,
     render_intake_stage_tracker,
     render_verification_status,
+    render_processing_policy_validation,
     format_iso_timestamp,
     safe_str,
     safe_title,
@@ -557,43 +558,58 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
             return
 
         # Step 5: Normalize clinical coding standards & evaluate rules
-        with st.spinner("Step 5/5 Evaluating coverage rules & medical policy determination..."):
-            patient = normalize_patient(patient)
-            validation = validate_patient(patient)
+        patient = normalize_patient(patient)
+        validation = validate_patient(patient)
 
-            # Update Supabase patient record with full clinical details
-            if db_patient_id:
-                try:
-                    update_patient_clinical_data(db_patient_id, patient)
-                    update_authorization_request_details(db_request_id, patient, status="EVALUATING")
-                    save_clinical_facts(db_request_id, patient, model_name="Groq LLM")
-                except Exception as update_err:
-                    logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
+        # Update Supabase patient record with full clinical details
+        if db_patient_id:
+            try:
+                update_patient_clinical_data(db_patient_id, patient)
+                update_authorization_request_details(db_request_id, patient, status="EVALUATING")
+                save_clinical_facts(db_request_id, patient, model_name="Groq LLM")
+            except Exception as update_err:
+                logger.warning(f"Could not update patient clinical details in Supabase: {update_err}")
 
-            # Policy Matching & Deterministic Rule Engine Evaluation
-            policies = load_policies(POLICY_PATH)
-            no_pa_codes = load_no_prior_auth(NO_PA_PATH)
+        # Policy Retrieval, Active Status Check & Deterministic Rule Engine Evaluation
+        policies = load_policies(POLICY_PATH)
+        no_pa_codes = load_no_prior_auth(NO_PA_PATH)
+
+        matching_pols = find_matching_policies(patient, policies)
+        cand_pol = select_policy_deterministically(patient, matching_pols) if matching_pols else None
+
+        if cand_pol:
+            render_processing_policy_validation(cand_pol)
+
+        raw_pol_stat = cand_pol.get("policy_status") if isinstance(cand_pol, dict) else None
+        is_active_pol = (raw_pol_stat is not None) and (str(raw_pol_stat).strip().lower() == "active")
+
+        if is_active_pol:
+            with st.spinner("Step 5/5 — Evaluating coverage rules & medical policy determination..."):
+                result = process_decision(patient, policies, no_pa_codes)
+        else:
+            st.info("Step 4/5 — Policy validation completed: INACTIVE. Rule evaluation not performed — Manual Review required.", icon="ℹ️")
             result = process_decision(patient, policies, no_pa_codes)
 
-            # Persist Final Decision & Criteria to Supabase
-            db_decision_id = None
-            criteria_to_save = result.get("criteria") or result.get("results") or []
-            if db_request_id and result:
-                try:
-                    db_decision_id = save_decision(db_request_id, result)
-                    save_decision_criteria(db_decision_id, criteria_to_save)
-                    update_authorization_request_status(
-                        db_request_id,
-                        result.get("decision", "MANUAL REVIEW")
-                    )
-                except Exception as dec_err:
-                    logger.warning(f"Failed to persist final decision: {dec_err}")
+        # Persist Final Decision & Criteria to Supabase
+        db_decision_id = None
+        criteria_to_save = result.get("criteria") or result.get("results") or []
+        if db_request_id and result:
+            try:
+                db_decision_id = save_decision(db_request_id, result)
+                save_decision_criteria(db_decision_id, criteria_to_save)
+                update_authorization_request_status(
+                    db_request_id,
+                    result.get("decision", "MANUAL REVIEW")
+                )
+            except Exception as dec_err:
+                logger.warning(f"Failed to persist final decision: {dec_err}")
 
         # Package into Unified Case Object and display immediately
         req_created_at = db_request_created_at or datetime.utcnow().isoformat()
         case_obj = {
             "patient": patient,
             "verification": verification,
+            "policy": result.get("policy"),
             "request": {
                 "id": db_request_id,
                 "requested_service": patient.get("requested_service"),
@@ -608,6 +624,7 @@ def run_clinical_evaluation_pipeline(history_file, pa_file):
                 "id": db_decision_id,
                 "policy_id": result.get("policy_id") or (result.get("policy", {}).get("policy_id") if result.get("policy") else "POL-001"),
                 "policy_name": result.get("policy_name") or (result.get("policy", {}).get("policy_name") if result.get("policy") else "Medical Coverage Policy"),
+                "policy": result.get("policy"),
                 "decision": result.get("decision", "MANUAL REVIEW"),
                 "reason": result.get("reason", ""),
                 "failed_criteria": result.get("failed_criteria", []),

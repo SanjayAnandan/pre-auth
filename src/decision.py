@@ -133,6 +133,59 @@ Reason: No applicable policy was found for requested service.
     policy = select_policy_deterministically(patient, matching_policies)
 
     # ========================================================
+    # STEP 3.5 — POLICY ACTIVE STATUS CHECK
+    # ========================================================
+
+    raw_status = policy.get("policy_status")
+    is_active = raw_status is not None and str(raw_status).strip().lower() == "active"
+
+    if not is_active:
+        pol_id = policy.get("policy_id", "Unknown")
+        status_str = str(raw_status).upper() if raw_status is not None else "MISSING"
+        reason_msg = f"Policy {pol_id} is currently inactive and cannot be used for authorization evaluation."
+
+        trace_msg = f"""
+========================================
+AUTHORIZATION EVALUATION TRACE
+========================================
+Document Hash:
+{doc_hash}
+
+CPT/HCPCS:
+{raw_code}
+
+Diagnosis:
+{patient.get("diagnosis")}
+
+Policy Retrieved: {pol_id}
+Policy Status: {status_str}
+Evaluation: NOT PERFORMED
+Reason: Policy is inactive
+
+Determination: MANUAL REVIEW
+========================================
+"""
+        logger.info(trace_msg)
+        print(trace_msg)
+
+        return {
+            "document_hash": doc_hash,
+            "decision": "MANUAL REVIEW",
+            "patient_id": patient.get("patient_id"),
+            "requested_service": patient.get("requested_service"),
+            "code": raw_code,
+            "policy_id": pol_id,
+            "policy_name": policy.get("policy_name"),
+            "policy": policy,
+            "normalized_patient": patient,
+            "reason": reason_msg,
+            "criteria": [],
+            "results": [],
+            "failed_criteria": [],
+            "manual_review_reasons": [reason_msg]
+        }
+
+    # ========================================================
     # STEP 4 — POLICY-AWARE NORMALIZATION
     # ========================================================
 

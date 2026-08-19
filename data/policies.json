@@ -77,7 +77,7 @@
       "High-risk clinical condition is detected",
       "Required clinical information is contradictory"
     ],
-    "policy_status": "active"
+    "policy_status": "inactive"
   },
   {
     "policy_id": "POL-002",
