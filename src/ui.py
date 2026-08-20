@@ -294,8 +294,8 @@ li[data-baseweb="menu-item"]:hover, li[data-baseweb="menu-item"][aria-selected="
   padding: 20px 20px 8px 20px;
 }
 .sidebar-logo {
-  width: 34px; height: 34px; border-radius: var(--radius-md);
-  background: var(--teal-700); color: var(--white);
+    width: 34px; height: 34px; border-radius: var(--radius-md);
+    background: var(--blue-700); color: var(--white);
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 700;
   box-shadow: 0 2px 4px rgba(15,118,110,.25);
@@ -588,7 +588,7 @@ def render_sidebar_nav(db_status: Dict[str, Any] = None) -> str:
         # Brand
         st.markdown("""
         <div class="sidebar-brand">
-            <div class="sidebar-logo">✚</div>
+            <div class="sidebar-logo">PA</div>
             <div class="sidebar-brand-text">
                 <h2>PREAUTH</h2>
                 <span>Prior Authorization Intelligence</span>
@@ -677,11 +677,14 @@ def render_top_header(db_status: Dict[str, Any]):
     user_initials = user_info.get("initials", "CR")
     user_color = user_info.get("color", "var(--teal-700)")
 
+    # show application title and optional version from session state
+    version = st.session_state.get("app_version", "0.1")
     col_h1, col_h2 = st.columns([1, 1])
     with col_h1:
         st.markdown(f"""
-        <div style="display:flex;align-items:center;height:38px;">
+        <div style="display:flex;align-items:center;height:38px;gap:8px;">
             <span style="font-size:14px;font-weight:700;color:var(--slate-700);letter-spacing:0.02em;">PREAUTH SYSTEM</span>
+            <span style="font-size:12px;color:var(--slate-500);">v{version}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -700,7 +703,7 @@ def render_top_header(db_status: Dict[str, Any]):
             </div>
             """, unsafe_allow_html=True)
         with top_col_c:
-            if st.button("Logout", key="top_header_logout_btn", type="secondary"):
+            if st.button("Sign Out", key="top_header_signout_btn", type="secondary"):
                 from src.auth import logout
                 logout()
 
